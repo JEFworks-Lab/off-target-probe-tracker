@@ -23,3 +23,6 @@ Below is a sample command:
 # --fwd flag enables automatic reverse complementation of reversely oriented probes
 otpc -q probes.fa -t transcripts.fa -a transcripts.gff --fwd -o out [--nucmer]
 ```
+
+TODO:
+- install nucmer on pip install... this took me a bit to figure out lol

@@ -4,8 +4,6 @@
 *.RData
 *~
 .Rproj.user
-data/*fa
-data/*fxi
 caleb/hisat2/*
 caleb/hisat2_genome/*
 tools/
@@ -15,3 +13,7 @@ otpc/build/
 otpc/otpc.egg-info/
 otpc/test_data/
 otpc/test_results/
+analysis/plotting/
+otpc/mummer-4.0.1/
+otpc/data/
+otpc/data_genome/
