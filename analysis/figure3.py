@@ -12,6 +12,7 @@ import pandas as pd
 import scanpy as sc
 import anndata as ad
 import matplotlib.pyplot as plt
+plt.rcParams['svg.fonttype'] = 'none'
 import scipy
 import seaborn as sns
 import os
@@ -26,6 +27,7 @@ import scipy.stats as stats
 from sklearn.cluster import KMeans
 from adjustText import adjust_text
 import matplotlib.patches as mpatches
+import matplotlib.collections as mcoll
 
 # set seed
 np.random.seed(0)
@@ -70,23 +72,6 @@ sc_data.X_array.columns = sc_data.var.index
 
 sc_total = sc_data.X_array[shared_genes].sum(axis=0)
 
-# plot
-plt.scatter(sc_total, xenium_total)
-plt.xscale('log')
-plt.yscale('log')
-plt.ylabel('Xenium total expression')
-plt.xlabel('Single-cell total expression')
-plt.show()
-
-# plot names of genes
-plt.figure(figsize=(10, 10))
-ax = sns.scatterplot(x=sc_total, y=xenium_total)
-ax.set(xscale='log', yscale='log')
-for i, txt in enumerate(shared_genes):
-    ax.annotate(txt, (sc_total[i], xenium_total[i]))
-plt.show()
-
-
 
 ############################################################################################################
 
@@ -105,114 +90,166 @@ offtarget_genes
 xenium_probes = pd.read_csv("/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/xenium_probes_list.csv")
 list(xenium_probes['Gene'])
 
-# get all genes
-all_genes = pd.DataFrame(list(adata_xenium.var.index), columns=['Gene'])
 
-
-df = all_genes.merge(offtarget_genes, on='Gene', how='left')
-
+# adding diff to adata_visium_sub.var
+gene_summary_tmp = offtarget_genes.copy()
+gene_summary_tmp = gene_summary_tmp.set_index('Gene')
+# merge df
+merged_df = sc_data.var.join(gene_summary_tmp, how="left")
 # add another column for if genes are in xenium_probes
-df['dowehaveprobes'] = df['Gene'].isin(list(xenium_probes['Gene']))
+merged_df['dowehaveprobes'] = merged_df.index.isin(list(xenium_probes['Gene']))
 
-df.index = df['Gene']
+# make adata.var the merged
+sc_data.var = merged_df
 
 
+# choose color palette
+c1 = "#C83500"
+c2 = "#D98F4A"
+c3 = "#20649E"
+
+# getting what genes are in scRNA-seq
 colors = []
-for gene in list(df['Gene']):
+for gene in sc_total.index:
 
     # gene = "ZEB2"
     aligned_to_list = (
-        [] if pd.isna(df.loc[gene, "aligned_to"])
-        else df.loc[gene, "aligned_to"].split(',')
+        [] if pd.isna(sc_data.var.loc[gene, "aligned_to"])
+        else sc_data.var.loc[gene, "aligned_to"].split(',')
     )
     
-    genes_in_vis = df.loc[gene, "genes_in_vis"]
+    genes_in_sc = sc_data.var.loc[gene, "genes_in_sc"]
 
-    # Condition for red: More than one gene in `aligned_to` OR a single gene that is different from the index
+    # more than one gene in `aligned_to` OR a single gene that is different from the index
     is_offtarget = len(aligned_to_list) > 1 or (len(aligned_to_list) == 1 and aligned_to_list[0] != gene)
 
-    # Blue **only within red genes**: If it meets red conditions *and* has `genes_in_vis`
-    is_invisium = is_offtarget and gene != genes_in_vis
+    # off-targets not visium
+    is_invisium = is_offtarget and gene != genes_in_sc
 
     # check if gene is in xenium_probes
-    is_aprobe = df.loc[gene, "dowehaveprobes"]
+    is_aprobe = sc_data.var.loc[gene, "dowehaveprobes"]
 
+    # assign colors
     if is_invisium:
-        colors.append('red')
+        colors.append(c1)
     elif is_offtarget:
-        colors.append('blue')
+        colors.append(c2)
     elif not is_aprobe:
-        colors.append('purple')
+        colors.append(c3)
     else:
-        colors.append('gray') 
+        colors.append('lightgray') 
 
 # double check
 print(pd.Series(colors).value_counts())
 
 
-# plot
-plt.figure(figsize=(10, 6))
-# plot
-plt.scatter(np.log(sc_total+1), np.log(xenium_total+1), c=colors)
-plt.xlabel("Log Total Counts scRNA-seq", fontsize=16)
-plt.ylabel("Log Total Counts Xenium", fontsize=16)
-plt.title("Total counts of genes in scRNA-seq vs Xenium", fontsize=16)
 
-plt.xlim([min(np.log(sc_total+1)) - 0.5, max(np.log(sc_total+1)) + 0.5])
-plt.ylim([min(np.log(xenium_total+1)) - 0.5, max(np.log(xenium_total+1)) + 0.5])
+# get data from your AnnData objects
+x_sc = np.log(sc_total+1)
+y_xen = np.log(xenium_total+1)
 
-# Plot reference lines, 
-plt.plot(
-    [min(np.log(sc_total+1)) - 0.5, max(np.log(sc_total+1)) + 0.5],
-    [min(np.log(sc_total+1)) - 0.5, max(np.log(sc_total+1)) + 0.5],
-    color='green', linewidth=2, linestyle='--'
-)
+# Convert colors list to an array
+colors_array = np.array(colors)
+
+# plot
+plt.figure(figsize=(18, 6))
+
+# Plot reference lines
+plt.plot([min(y_xen), max(y_xen)],
+         [min(y_xen), max(y_xen)],
+         color='#434343', linewidth=2, linestyle='--')
+
+x_vals = np.linspace(min(x_sc), max(x_sc) + 0.5, 100)
+y_vals = np.log(10) + x_vals
+# plt.plot(x_vals, y_vals, color='green', linewidth=2)
 
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
 
-# Label points that are red or blue
-texts = []  # Store text elements for adjustText
-for i, gene in enumerate(adata_xenium.var_names):
-    if colors[i] in ['red']:
-        txt = plt.text(
-            np.log(sc_total+1)[i],
-           np.log(xenium_total+1)[i],
-            gene, fontsize=8
-        )
+# Define the desired plotting order
+plot_order = ['lightgray', c3, c2, c1]
+
+# Plot each group in order
+for col in plot_order:
+    idx = np.array(x_sc.index)[np.where(colors_array == col)]
+    if col in ['lightgray']:
+        plt.scatter(x_sc[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+    else:
+        if col == c2:
+            plt.scatter(x_sc[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+        elif col == c3:
+            plt.scatter(x_sc[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+        elif col == c1:
+            plt.scatter(x_sc[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+
+
+# Label points that are darkgreen 
+texts = []
+for i, gene in enumerate(sc_total.index):
+    if colors[i] == c1:
+        txt = plt.text(x_sc[i], y_xen[i], gene, fontsize=8)
         texts.append(txt)
 
-# also add HDC in texts
-txt = plt.text(
-    np.log(sc_total+1)[np.log(sc_total+1).index == "HDC"],
-    np.log(xenium_total+1)[np.log(xenium_total+1).index == "HDC"],
-    'HDC', fontsize=8
-)
+# Also add HDC 
+hdc_idx = np.where(sc_total.index == 'HDC')[0]
+if hdc_idx.size > 0:
+    txt = plt.text(x_sc[hdc_idx][0], y_xen[hdc_idx][0], 'HDC', fontsize=8)
+    texts.append(txt)
 
-# Adjust text to avoid overlap
+# adjust text
 adjust_text(texts, arrowprops=dict(arrowstyle="-", lw=0.5), force_points=0.5)
 
 # Custom legend
-red_patch = mpatches.Patch(color='red', label='Off Target Probes in Visium')
-blue_patch = mpatches.Patch(color='blue', label='Off Target Probes no Visium')
-green_patch = mpatches.Patch(color='purple', label='Custom Probes')
-gray_patch = mpatches.Patch(color='gray', label='No issues')
+red_patch = mpatches.Patch(color=c1, label='Predicted off-target probes in scRNA-seq')
+blue_patch = mpatches.Patch(color=c2, label='Predicted off-target probes not in scRNA-seq')
+green_patch = mpatches.Patch(color=c3, label='Custom Probes')
+gray_patch = mpatches.Patch(color='lightgray', label='No predicted off-target probes')
 plt.legend(handles=[red_patch, blue_patch, green_patch, gray_patch])
 
+plt.xlabel('Total counts in scRNA-seq (psuedo-log)', fontsize=12)
+plt.ylabel('Total counts in Xenium (psuedo-log)', fontsize=12)
+
 sns.despine()
-plt.show()
-
-
-
-
-
-
-
-
+# plt.axis("off")
+plt.savefig("/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/scrnaseq_xenium_comparison.svg", dpi=300, bbox_inches='tight')
 
 
 
 ############################################################################################################
+
+
+### read in xenium data ###
+
+# read in the data
+adata_xenium = sc.read_10x_h5('/home/caleb/Desktop/projects_caleb/histology_to_gene_prediction/data/breastcancer_xenium_sample1_rep1/cell_feature_matrix.h5')
+# add array for gene expression
+adata_xenium.X_array = pd.DataFrame(adata_xenium.X.toarray(), index=adata_xenium.obs.index)
+# label genes
+adata_xenium.X_array.columns = adata_xenium.var.index
+
+
+### read in single-cell data ###
+
+
+# read in single-cell data
+file = "/home/caleb/Desktop/off-target-probe-checker/data/SC3pv3_GEX_Breast_Cancer_DTC_Aggr_count_filtered_feature_bc_matrix.h5"
+sc_data = sc.read_10x_h5(file)
+
+
+### compare total expression ###
+
+# get shared genes
+shared_genes = np.intersect1d(list(adata_xenium.var.index), list(sc_data.var.index))
+len(shared_genes)
+
+# get total expression
+xenium_total = adata_xenium.X_array[shared_genes].sum(axis=0)
+# make array
+sc_data.X_array = pd.DataFrame(sc_data.X.toarray(), index=sc_data.obs.index)
+# add gene names
+sc_data.X_array.columns = sc_data.var.index
+
+sc_total = sc_data.X_array[shared_genes].sum(axis=0)
 
 
 ### do harmonized clustering ###
@@ -376,6 +413,7 @@ adata_xen_nocpm.var_names_make_unique()
 adata_xen_nocpm.uns['neighbors'] = adata_xen.uns['neighbors']
 
 
+
 ################################################################################################################
 
 
@@ -383,8 +421,8 @@ adata_xen_nocpm.uns['neighbors'] = adata_xen.uns['neighbors']
 
 
 # combine gene expression
-bp_diff = "6" # NOTE: set this to 0, 5, or 10 in string form
-offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_new.csv")
+bp_diff = "0" # NOTE: set this to 0, 5, or 10 in string form
+offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_final.csv")
 offtarget_genes
 
 
@@ -478,17 +516,17 @@ for gene in common_genes:
 
 
 
-# plot correlation
-plt.figure(figsize=(10, 5))
-plt.bar(common_genes, pearson_corr, color='#0406EA', alpha=0.5, label='Single Genes')
-plt.bar(common_genes, pearson_corr_agg, color='#F2080A', alpha=0.5, label='Aggregated Genes')
-plt.xticks(rotation=45)
-plt.ylabel('Pearson Correlation')
-# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.legend()
-plt.title('Pearson Correlation between SC Data and Xenium Data')
-sns.despine()
-plt.show()
+# # plot correlation
+# plt.figure(figsize=(10, 5))
+# plt.bar(common_genes, pearson_corr, color='#0406EA', alpha=0.5, label='Single Genes')
+# plt.bar(common_genes, pearson_corr_agg, color='#F2080A', alpha=0.5, label='Aggregated Genes')
+# plt.xticks(rotation=45)
+# plt.ylabel('Pearson Correlation')
+# # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+# plt.legend()
+# plt.title('Pearson Correlation between SC Data and Xenium Data')
+# sns.despine()
+# plt.show()
 
 
 
@@ -502,8 +540,8 @@ plt.show()
 # NOTE: need to set bp_diff above to to make sure oyu get agg correct
 
 # combine gene expression
-bp_diff = "6" # NOTE: set this to 0, 5, or 10 in string form
-offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_new.csv")
+bp_diff = "0" # NOTE: set this to 0, 5, or 10 in string form
+offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_final.csv")
 offtarget_genes
 
 
@@ -520,31 +558,96 @@ adata_sc_nocpm_agg.X = scipy.sparse.csr_matrix(sc_expr_agg.iloc[:, :-1])
 
 # iterate over genes
 for i in range(0, len(offtarget_genes)):
-    print(i)
     # gene of interest
     gene = offtarget_genes.loc[i, 'Gene']
-    # get list of off-targets
-    off_targets = offtarget_genes.loc[i, 'genes_in_sc'].split(',')
-    # make a new directory for each gene
-    os.makedirs(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_{bp_diff}bp/{gene}", exist_ok=True)
-    # plot umap
-    sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title = "Xenium: " + gene, return_fig=True)
-    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_{bp_diff}bp/{gene}/{gene}_xen_umap.png")
-    plt.close()
 
-    # plot umap of aggregated gene
-    sc.pl.umap(adata_sc_nocpm_agg, color=gene, color_map=gray_red, size=10, title = "Single Cell Aggregated: " + gene, return_fig=True)
-    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_{bp_diff}bp/{gene}/{gene}_sc_agg_umap.png")
-    plt.close()
+    # just get one gene
+    if gene == 'TUBB2B':
 
-    # plot umap for each off-target
-    for off_target in off_targets:
-        sc.pl.umap(adata_sc_nocpm, color=off_target, color_map=gray_red, size=10, title = "Single Cell: " + off_target, return_fig=True)
-        plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_{bp_diff}bp/{gene}/{off_target}_sc_umap.png")
+        # get list of off-targets
+        off_targets = offtarget_genes.loc[i, 'genes_in_sc'].split(',')
+        # make a new directory for each gene
+        os.makedirs(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}", exist_ok=True)
+
+        ### xenium ###
+
+        # plot umap
+        fig = sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title = "", return_fig=True)
+        # If there is more than one axis, remove the last one (assumed to be the colorbar)
+        if len(fig.axes) > 1:
+            fig.axes[-1].remove()
+        # Iterate over all axes in the figure and turn them off
+        for ax in fig.get_axes():
+            ax.set_axis_off()
+        plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{gene}_xen_umap_data.png", dpi=300, bbox_inches='tight')
         plt.close()
+
+        # Create the UMAP plot and get the figure object
+        fig = sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title = "Xenium Expression of " + gene, return_fig=True)
+
+        # Iterate over all axes and remove scatter plot data (PathCollection objects)
+        for ax in fig.get_axes():
+            for artist in ax.get_children():
+                if isinstance(artist, mcoll.PathCollection):
+                    artist.remove()
+        # save
+        plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{gene}_xen_umap_outline.svg", dpi=300)
+        plt.close()
+
+        ### aggregated single-cell ###
+
+        # plot umap of aggregated gene
+        fig = sc.pl.umap(adata_sc_nocpm_agg, color=gene, color_map=gray_red, size=15, title = "", return_fig=True)
+        # If there is more than one axis, remove the last one (assumed to be the colorbar)
+        if len(fig.axes) > 1:
+            fig.axes[-1].remove()
+        # Iterate over all axes in the figure and turn them off
+        for ax in fig.get_axes():
+            ax.set_axis_off()
+        plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{gene}_sc_agg_umap_data.png", dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # plot umap of aggregated gene
+        fig = sc.pl.umap(adata_sc_nocpm_agg, color=gene, color_map=gray_red, size=15, title = "Aggregated scRNA-seq Expression of " + gene, return_fig=True)
+        # Iterate over all axes and remove scatter plot data (PathCollection objects)
+        for ax in fig.get_axes():
+            for artist in ax.get_children():
+                if isinstance(artist, mcoll.PathCollection):
+                    artist.remove()
+        # save
+        plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{gene}_sc_agg_umap_outline.svg", dpi=300)
+        plt.close()
+    
+        ### single-cell ###
+
+        # plot umap for each off-target
+        for off_target in off_targets:
+            fig = sc.pl.umap(adata_sc_nocpm, color=off_target, color_map=gray_red, size=15, title = "", return_fig=True)
+            # If there is more than one axis, remove the last one (assumed to be the colorbar)
+            if len(fig.axes) > 1:
+                fig.axes[-1].remove()
+            # Iterate over all axes in the figure and turn them off
+            for ax in fig.get_axes():
+                ax.set_axis_off()
+            plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{off_target}_sc_umap_data.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # 
+            fig = sc.pl.umap(adata_sc_nocpm, color=off_target, color_map=gray_red, size=15, title =  "scRNA-seq Expression of " + off_target, return_fig=True)
+            # Iterate over all axes and remove scatter plot data (PathCollection objects)
+            for ax in fig.get_axes():
+                for artist in ax.get_children():
+                    if isinstance(artist, mcoll.PathCollection):
+                        artist.remove()
+            
+            plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_{bp_diff}bp/{gene}/{off_target}_sc_umap_outline.svg", dpi=300)
+            plt.close()
+
+
 
 
 ############################################################################################################
+
 
 
 
@@ -565,16 +668,60 @@ for i in range(0, len(genes2plot)):
     # gene of interest
     gene = genes2plot[i]
     # make a new directory for each gene
-    os.makedirs(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_notofftargets/{gene}", exist_ok=True)
+    os.makedirs(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_notofftargets/{gene}", exist_ok=True)
+
+
+    # xenium
+
+
     # plot umap
-    sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title = "Xenium: " + gene, return_fig=True)
-    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_notofftargets/{gene}/{gene}_xen_umap.png")
+    fig = sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title="", return_fig=True)
+    # If there is more than one axis, remove the last one (assumed to be the colorbar)
+    if len(fig.axes) > 1:
+        fig.axes[-1].remove()
+    # Iterate over all axes in the figure and turn them off
+    for ax in fig.get_axes():
+        ax.set_axis_off()
+    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_notofftargets/{gene}/{gene}_xen_umap_data.png", dpi=300, bbox_inches='tight')
     plt.close()
 
-    sc.pl.umap(adata_sc_nocpm, color=gene, color_map=gray_red, size=10, title = "Single Cell: " + gene, return_fig=True)
-    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/umaps_dotplots_notofftargets/{gene}/{gene}_sc_umap.png")
+    # Create the UMAP plot and get the figure object
+    fig = sc.pl.umap(adata_xen_nocpm, color=gene, color_map=gray_red, size=5, title="Xenium Expression of " + gene, return_fig=True)
+
+    # Iterate over all axes and remove scatter plot data (PathCollection objects)
+    for ax in fig.get_axes():
+        for artist in ax.get_children():
+            if isinstance(artist, mcoll.PathCollection):
+                artist.remove()
+    # save
+    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_notofftargets/{gene}/{gene}_xen_umap_outline.svg", dpi=300)
     plt.close()
+
+    # scRNA-seq
+
+
+    fig = sc.pl.umap(adata_sc_nocpm, color=gene, color_map=gray_red, size=15, title = "", return_fig=True)
+    # If there is more than one axis, remove the last one (assumed to be the colorbar)
+    if len(fig.axes) > 1:
+        fig.axes[-1].remove()
+    # Iterate over all axes in the figure and turn them off
+    for ax in fig.get_axes():
+        ax.set_axis_off()
+    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_notofftargets/{gene}/{gene}_sc_umap_data.png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # Create the UMAP plot and get the figure object
+    fig = sc.pl.umap(adata_sc_nocpm, color=gene, color_map=gray_red, size=15, title = "scRNA-seq Expression of " + gene, return_fig=True)
+
+        # Iterate over all axes and remove scatter plot data (PathCollection objects)
+    for ax in fig.get_axes():
+        for artist in ax.get_children():
+            if isinstance(artist, mcoll.PathCollection):
+                artist.remove()
+    # save
+    plt.savefig(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure3/umaps_notofftargets/{gene}/{gene}_sc_umap_outline.svg", dpi=300)
+    plt.close()
+
 
 
 ############################################################################################################
-

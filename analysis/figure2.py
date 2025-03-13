@@ -112,6 +112,12 @@ merged_df['dowehaveprobes'] = merged_df.index.isin(list(xenium_probes['Gene']))
 adata_visium_sub.var = merged_df
 
 
+
+# choose color palette
+c1 = "#C83500"
+c2 = "#D98F4A"
+c3 = "#20649E"
+
 # getting what genes are in visium
 colors = []
 for gene in adata_visium_sub.var.index:
@@ -135,11 +141,11 @@ for gene in adata_visium_sub.var.index:
 
     # assign colors
     if is_invisium:
-        colors.append('darkgreen')
+        colors.append(c1)
     elif is_offtarget:
-        colors.append('darkblue')
+        colors.append(c2)
     elif not is_aprobe:
-        colors.append('purple')
+        colors.append(c3)
     else:
         colors.append('lightgray') 
 
@@ -157,12 +163,12 @@ y_xen = adata_xenium_sub.var['total_counts_sub_log']
 colors_array = np.array(colors)
 
 # plot
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(18, 6))
 
 # Plot reference lines
 plt.plot([min(y_xen), max(y_xen)],
          [min(y_xen), max(y_xen)],
-         color='darkred', linewidth=2, linestyle='--')
+         color='#434343', linewidth=1, linestyle='--')
 
 x_vals = np.linspace(min(x_vis), max(x_vis) + 0.5, 100)
 y_vals = np.log(10) + x_vals
@@ -172,26 +178,26 @@ plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
 
 # Define the desired plotting order
-plot_order = ['lightgray', 'purple', 'darkblue', 'darkgreen']
+plot_order = ['lightgray', c3, c2, c1]
 
 # Plot each group in order
 for col in plot_order:
     idx = np.array(x_vis.index)[np.where(colors_array == col)]
     if col in ['lightgray']:
-        plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none')
+        plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
     else:
-        if col == 'darkblue':
-            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none')
-        elif col == 'purple':
-            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none')
-        elif col == 'darkgreen':
-            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none')
+        if col == c2:
+            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+        elif col == c3:
+            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
+        elif col == c1:
+            plt.scatter(x_vis[idx], y_xen[idx], c=col, marker="o", facecolors='none', s=75)
 
 
 # Label points that are darkgreen 
 texts = []
 for i, gene in enumerate(adata_visium_sub.var_names):
-    if colors[i] == 'darkgreen':
+    if colors[i] == c1:
         txt = plt.text(x_vis[i], y_xen[i], gene, fontsize=8)
         texts.append(txt)
 
@@ -205,15 +211,19 @@ if hdc_idx.size > 0:
 adjust_text(texts, arrowprops=dict(arrowstyle="-", lw=0.5), force_points=0.5)
 
 # Custom legend
-red_patch = mpatches.Patch(color='darkgreen', label='Off-target probes in Visium')
-blue_patch = mpatches.Patch(color='darkblue', label='Off-target probes not in Visium')
-green_patch = mpatches.Patch(color='purple', label='Custom Probes')
+red_patch = mpatches.Patch(color=c1, label='Off-target probes in Visium')
+blue_patch = mpatches.Patch(color=c2, label='Off-target probes not in Visium')
+green_patch = mpatches.Patch(color=c3, label='Custom Probes')
 gray_patch = mpatches.Patch(color='lightgray', label='No off-targets')
 plt.legend(handles=[red_patch, blue_patch, green_patch, gray_patch])
 
+plt.xlabel('Total counts in Visium (psuedo-log)', fontsize=12)
+plt.ylabel('Total counts in Xenium (psuedo-log)', fontsize=12)
+
 sns.despine()
 # plt.axis("off")
-plt.savefig("/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure1/visium_xenium_comparison.svg", dpi=300, bbox_inches='tight')
+plt.savefig("/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure2/visium_xenium_comparison.svg", dpi=300, bbox_inches='tight')
+
 
 
 ############################################################################################################
@@ -222,8 +232,8 @@ plt.savefig("/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_f
 ### plot the gene expression of the off-targets ###
 
 # combine gene expression
-bp_diff = "6" # NOTE: set this to 0, 5, or 10 in string form
-offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_new.csv")
+bp_diff = "0" # NOTE: set this to 0, 5, or 10 in string form
+offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_final.csv")
 offtarget_genes
 
 # log transform the data
@@ -239,30 +249,20 @@ aligned_visium_dictionary_rerastered = rerasterize_patches(aligned_visium_dictio
 aligned_xenium_dictionary_rerastered = rerasterize_patches(aligned_xenium_dictionary, new_resolution_xenium)
 
 
-# plotRaster(adata_xenium.uns["spatial"], aligned_xenium_dictionary_rerastered, color_by='gene_expression', gene_name='GFAP', if_vis=False)
-plotRaster(adata_visium.uns["spatial"], aligned_visium_dictionary_rerastered, color_by='gene_expression', gene_name='GFAP', if_vis=False)
-
-
 # turn off interactive mode so figures can be saved without displaying
 plt.ioff()
 
 # drfine your output folder
-output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_plots_" + bp_diff + "bp"
+output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure2/gene_plots_" + bp_diff + "bp"
 os.makedirs(output_base, exist_ok=True)
 
 # define the gene lists
 gene_list_visium = list(adata_visium.var.index)
 gene_list_xenium = list(adata_xenium.var.index)
 
-# subset to get only few genes, all new genes for 5bp but only two in dataset
-# offtarget_genes[offtarget_genes['Gene'].isin(['ACTG2', 'APOC1', 'CD83', 'CXCL5', 'CEACAM8', 'ENAH', 'FLNB'])]
-
-# offtarget_genes[offtarget_genes['Gene'].isin(['CXCL5', 'CEACAM8'])]
-
-# offtarget_genes.iloc[4:,:]
 
 # Loop over each row of dataframe
-for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['CEACAM8'])].iterrows():
+for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['TUBB2B'])].iterrows():
     # grab main gene
     main_gene = row["Gene"]
     print(main_gene)
@@ -279,14 +279,14 @@ for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['CEACAM8'])].iterr
     # Plot Xenium data for the main gene
     fig = plotRaster(adata_xenium.uns["spatial"], aligned_xenium_dictionary_rerastered, color_by='gene_expression', gene_name=main_gene, if_vis=False)
     # Save the figure in the gene folder
-    xenium_filename = os.path.join(gene_folder, f"{main_gene}_xenium.png")
-    fig.savefig(xenium_filename, bbox_inches='tight', dpi=150)
+    xenium_filename = os.path.join(gene_folder, f"{main_gene}_xenium.svg")
+    fig.savefig(xenium_filename, bbox_inches='tight', dpi=300)
     plt.close(fig)
     
     # Plot Visium data for the main gene.
     fig = plotRaster(adata_visium.uns["spatial"], aligned_visium_dictionary_rerastered, color_by='gene_expression', gene_name=main_gene, if_vis=True)
-    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium.png")
-    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=150)
+    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium.svg")
+    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=300)
     plt.close(fig)
     
     # For each off-target gene
@@ -296,8 +296,8 @@ for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['CEACAM8'])].iterr
         for off_target in genes_in_vis.split(','):
             if off_target != main_gene:
                 fig = plotRaster(adata_visium.uns["spatial"], aligned_visium_dictionary_rerastered, color_by='gene_expression', gene_name=off_target, if_vis=True)
-                off_target_filename = os.path.join(gene_folder, f"{main_gene}_visium_offtarget_{off_target}.png")
-                fig.savefig(off_target_filename, bbox_inches='tight', dpi=150)
+                off_target_filename = os.path.join(gene_folder, f"{main_gene}_visium_offtarget_{off_target}.svg")
+                fig.savefig(off_target_filename, bbox_inches='tight', dpi=300)
                 plt.close(fig)
 
 # print
@@ -312,8 +312,8 @@ plt.ion()
 ### plot aggregated gene expression ###
 
 # combine gene expression
-bp_diff = "6" # NOTE: set this to 0, 5, or 10 in string form
-offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_new.csv")
+bp_diff = "0" # NOTE: set this to 0, 5, or 10 in string form
+offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_out_{bp_diff}bp_nucmer_final.csv")
 offtarget_genes
 
 
@@ -379,7 +379,7 @@ aligned_visium_dictionary_rerastered_agg = rerasterize_patches(adata_patches_vis
 plt.ioff()
 
 # drfine your output folder
-output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_plots_" + bp_diff + "bp"
+output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure2/gene_plots_" + bp_diff + "bp"
 os.makedirs(output_base, exist_ok=True)
 
 # define the gene lists
@@ -389,7 +389,7 @@ gene_list_xenium = list(adata_xenium.var.index)
 # offtarget_genes.iloc[17:,:]
 
 # Loop over each row of dataframe
-for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['CEACAM8'])].iterrows():
+for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['TUBB2B'])].iterrows():
     # grab main gene
     main_gene = row["Gene"]
     print(main_gene)
@@ -405,8 +405,8 @@ for idx, row in offtarget_genes[offtarget_genes['Gene'].isin(['CEACAM8'])].iterr
     
     # Plot Visium agg data for the main gene
     fig = plotRaster(adata_visium.uns["spatial"], aligned_visium_dictionary_rerastered_agg, color_by='gene_expression', gene_name=main_gene, if_vis=True)
-    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium_agg.png")
-    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=150)
+    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium_agg.svg")
+    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=300)
     plt.close(fig)
 
 # print
@@ -418,24 +418,14 @@ plt.ion()
 ############################################################################################################
 
 
-### Finding Pearson Correlation ###
-
-# NOTE: re load data so it isnt normalized
-# NOTE: can change from rep1 to rep2
-
-# combine gene expression
-bp_diff = "10" # NOTE: set this to 0, 5, or 10 in string form
-offtarget_genes = pd.read_csv(f"/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_summary_filtered_{bp_diff}bp.csv")
-offtarget_genes
-
-# # combined data
-# adata_xenium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_tovisiumimage/xenium_data_full.h5ad')
-# adata_visium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_tovisiumimage/visium_data_full.h5ad')
-adata_xenium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep2_aligned/xenium_data_full.h5ad')
-adata_visium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep2_aligned/visium_data_full.h5ad')
+############################################################################################################
 
 
+### plot other genes ###
 
+# combined data
+adata_xenium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_toxeniumimage/xenium_data_full.h5ad')
+adata_visium = sc.read_h5ad('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_tovisiumimage/visium_data_full.h5ad')
 
 # make .X a csr matrix
 adata_xenium.X = scipy.sparse.csr_matrix(adata_xenium.X)
@@ -445,69 +435,24 @@ adata_visium.X = scipy.sparse.csr_matrix(adata_visium.X)
 adata_xenium.X_array = pd.DataFrame(adata_xenium.X.toarray(), index=adata_xenium.obs.index)
 adata_visium.X_array = pd.DataFrame(adata_visium.X.toarray(), index=adata_visium.obs.index)
 
-# find correlation between xenium and visium
-# calculate pearson correlation between xenium and visium per gene
-pearson_corr = []
-for gene in offtarget_genes['Gene']:
-    # check if gene is in both adata
-    if gene not in adata_visium.var_names or gene not in adata_xenium.var_names:
-        print(f"Skipping {gene} because it is not in both datasets.")
-        continue
-    corr = stats.pearsonr(np.log(adata_visium[:, gene].X.toarray().flatten()+1), np.log(adata_xenium[:, gene].X.toarray().flatten()+1))[0]
-    pearson_corr.append(corr)
+# patches
+with open('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_tovisiumimage/visium_patches_full.pkl', 'rb') as f:
+    aligned_visium_dictionary = pickle.load(f)
+
+with open('/home/caleb/Desktop/improvedgenepred/data/breastcancer_sample1_rep1_aligned_toxeniumimage/xenium_patches_full.pkl', 'rb') as f:
+    aligned_xenium_dictionary = pickle.load(f)
 
 
-# now do the same but combine the gene expression of off-targets
-pearson_corr_agg = []
-for i in range(0, len(offtarget_genes)):
-    print(i)
-    gene = offtarget_genes['Gene'][i]
-    # off-targets
-    off_targets = list(ast.literal_eval(offtarget_genes.loc[i, 'genes_in_vis']).keys())
-    # check if gene is in both adata
-    if gene not in adata_visium.var_names or gene not in adata_xenium.var_names:
-        print(f"Skipping {gene} because it is not in both datasets.")
-        continue
-    # check if off-targets are in both adata, if it isnt remove that gene from list
-    valid_off_targets = [g for g in off_targets if g in adata_visium.var_names]
-    removed_genes = [g for g in off_targets if g not in valid_off_targets]
-    if removed_genes:
-        print(f"Removed off-target genes for {gene}: {removed_genes}")
-    if not valid_off_targets:
-        continue
-    off_targets = valid_off_targets
-    # get corr
-    corr = stats.pearsonr(np.log(adata_visium[:, off_targets].X.toarray().sum(axis=1).flatten()+1), np.log(adata_xenium[:, gene].X.toarray().flatten()+1))[0]
+# scale the data
+scaling_factor = 1
+for i in aligned_visium_dictionary:
+    aligned_visium_dictionary[i].X = sc.pp.log1p(np.round(aligned_visium_dictionary[i].X * scaling_factor))
 
-    pearson_corr_agg.append(corr)
+# scale the data
+scaling_factor = 1
+for i in aligned_xenium_dictionary:
+    aligned_xenium_dictionary[i].X = sc.pp.log1p(np.round(aligned_xenium_dictionary[i].X * scaling_factor))
 
-pearson_corr_agg
-
-
-
-common_genes = offtarget_genes['Gene']
-# remove genes that are not in both datasets
-common_genes = [g for g in common_genes if g in adata_visium.var_names and g in adata_xenium.var_names]
-
-
-# plot correlation
-plt.figure(figsize=(10, 5))
-plt.bar(common_genes, pearson_corr, color='#0406EA', alpha=0.5, label='Single Genes')
-plt.bar(common_genes, pearson_corr_agg, color='#F2080A', alpha=0.5, label='Aggregated Genes')
-plt.xticks(rotation=45)
-plt.ylabel('Pearson Correlation')
-# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-plt.legend()
-plt.title('Pearson Correlation between Visium Data and Xenium Data')
-sns.despine()
-plt.show()
-
-
-
-############################################################################################################
-
-
-### plot other genes ###
 
 
 # log transform the data
@@ -524,7 +469,7 @@ aligned_xenium_dictionary_rerastered = rerasterize_patches(aligned_xenium_dictio
 
 
 # drfine your output folder
-output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/gene_plots_notofftarget"
+output_base = "/home/caleb/Desktop/off-target-probe-checker/caleb/plotting/final_figures/figure2/gene_plots_notofftarget"
 os.makedirs(output_base, exist_ok=True)
 
 # define the gene lists
@@ -548,13 +493,13 @@ for main_gene in genes2plot:
     # Plot Xenium data for the main gene
     fig = plotRaster(adata_xenium.uns["spatial"], aligned_xenium_dictionary_rerastered, color_by='gene_expression', gene_name=main_gene, if_vis=False)
     # Save the figure in the gene folder
-    xenium_filename = os.path.join(gene_folder, f"{main_gene}_xenium.png")
-    fig.savefig(xenium_filename, bbox_inches='tight', dpi=150)
+    xenium_filename = os.path.join(gene_folder, f"{main_gene}_xenium.svg")
+    fig.savefig(xenium_filename, bbox_inches='tight', dpi=300)
     plt.close(fig)
     
     # Plot Visium data for the main gene.
     fig = plotRaster(adata_visium.uns["spatial"], aligned_visium_dictionary_rerastered, color_by='gene_expression', gene_name=main_gene, if_vis=True)
-    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium.png")
-    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=150)
+    visium_main_filename = os.path.join(gene_folder, f"{main_gene}_visium.svg")
+    fig.savefig(visium_main_filename, bbox_inches='tight', dpi=300)
     plt.close(fig)
     
