@@ -6,8 +6,8 @@ with open("README.md", "r") as f:
 setup(
 	name="otpc",
 	version="0.0.1",
-	author="HJ Ji",
-	author_email="hji20@jh.edu",
+	author="HJ Ji, C Hallinan",
+	author_email="hji20@jh.edu, challin1@jh.edu",
 	description="detect off-target probe activities through alignment of probes to transcripts",
     long_description=long_description,
     long_description_content_type="text/markdown",

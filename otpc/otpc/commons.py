@@ -25,14 +25,37 @@ def message(s, mtype) -> str:
     return f"{datetime.now()} {mtype.value[0]}{mtype.value[1]}{RESET} {s}"
 
 def align(qfn, tfn, prefix, norc, args) -> str:
-    print(message(f"aligning query probes to target transcripts", Mtype.PROG))
     ofn = os.path.join(args.out_dir, f'{prefix}.bam' if args.bam else f'{prefix}.sam')
     if args.binary:
         aligner = args.binary
     else:
-        aligner = "nucmer" if args.nucmer else "bowtie2"
-    if args.nucmer: # nucmer flow
-        # add -f flag
+        aligner = "bowtie2" if args.bowtie2 else "nucmer"
+    print(message(f"aligner: {aligner}", Mtype.PROG))
+    if args.bowtie2: # bt2 flow
+        idx_fn = os.path.join(args.out_dir, 'target')
+        if not args.skip_index:
+            cmd = f'{aligner}-build -q {tfn} {idx_fn} --threads {args.threads}'
+            print(cmd)
+            call(cmd, shell=True)
+
+        if not os.path.exists(f'{idx_fn}.1.bt2'):
+            print(message(f"bt2 index missing; please remove --skip-index flag", Mtype.ERR))
+            sys.exit(-1)
+
+        # add --norc flag if 2nd alignment
+        norc_flag = "--norc" if norc else ""
+
+        if args.bam:
+            cmd = f'{aligner} -f -a -N 1 --local {norc_flag} -x {idx_fn} ' + \
+                f'-U {qfn} --very-sensitive-local --threads {args.threads} ' + \
+                f'| samtools view -b -o {ofn} -@ {args.threads}'
+        else:
+            cmd = f'{aligner} -f -a -N 1 --local {norc_flag} -x {idx_fn} ' + \
+                f'-U {qfn} --very-sensitive-local --threads {args.threads} -S {ofn}'
+        print(cmd)
+        call(cmd, shell=True)
+    else: # nucmer flow
+        # add -f flag if 2nd alignment
         f_flag = "-f" if norc else ""
 
         if args.bam:
@@ -48,29 +71,18 @@ def align(qfn, tfn, prefix, norc, args) -> str:
             cmd = f'{aligner} {f_flag} --maxmatch -l {args.min_exact_match} -c 0 -t {args.threads} ' + \
                 f'{tfn} {qfn} --sam-long={ofn}'
             print(cmd); call(cmd, shell=True)
-    else: # bt2 flow
-        idx_fn = os.path.join(args.out_dir, 'target')
-        if not args.skip_index:
-            cmd = f'{aligner}-build -q {tfn} {idx_fn} --threads {args.threads}'
-            print(cmd)
-            call(cmd, shell=True)
+    return ofn
 
-        if not os.path.exists(f'{idx_fn}.1.bt2'):
-            print(message(f"bt2 index missing; please remove --skip-index flag", Mtype.ERR))
-            sys.exit(-1)
-
-        # add --norc flag
-        norc_flag = "--norc" if norc else ""
-
-        if args.bam:
-            cmd = f'{aligner} -f -a -N 1 --local {norc_flag} -x {idx_fn} ' + \
-                f'-U {qfn} --very-sensitive-local --threads {args.threads} ' + \
-                f'| samtools view -b -o {ofn} -@ {args.threads}'
-        else:
-            cmd = f'{aligner} -f -a -N 1 --local {norc_flag} -x {idx_fn} ' + \
-                f'-U {qfn} --very-sensitive-local --threads {args.threads} -S {ofn}'
-        print(cmd)
-        call(cmd, shell=True)
+def align_nm(qfn, tfn, prefix, args) -> str:
+    ofn = os.path.join(args.out_dir, f'{prefix}.mums')
+    if args.binary:
+        aligner = args.binary
+    else:
+        aligner = "mummer" # mummer is the only compatible aligner here
+    print(message(f"aligner: {aligner}", Mtype.PROG))
+    cmd = f'{aligner} -maxmatch -l {args.min_exact_match} -t {args.threads} ' + \
+        f'{tfn} {qfn} > {ofn}'
+    print(cmd); call(cmd, shell=True)
     return ofn
 
 def att2dict(s, sep):
@@ -100,13 +112,17 @@ def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
             tid = att_d[schema[1]]
             gid = att_d[schema[2]] if keep_dot else att_d[schema[2]].split('.')[0]
             gname = att_d[schema[3]] if schema[3] in att_d else None
+            if gname:
+                temp = gname.split(',')
+                if len(temp) > 1:
+                    temp = [x.strip() for x in temp]
+                    gname = ';'.join(temp)
             ttype = att_d.get(schema[4], None) # Caleb: add transcript type
             tinfos[tid] = (gid, gname, ttype) # Caleb: add transcript type
     print(message(f"loaded {ctr} transcripts", Mtype.PROG))
     return tinfos
 
-def write_tinfos(out_dir, tinfos) -> None:
-    fn = os.path.join(out_dir, 't2g.csv')
+def write_tinfos(fn, tinfos) -> None:
     with open(fn, 'w') as fh:
         fh.write('transcript_id,gene_id,gene_name,transcript_type\n') # Caleb: add transcript type
         for x in tinfos:
@@ -121,12 +137,25 @@ def load_tinfos(fn) -> dict:
             tinfos[row['transcript_id']] = (row['gene_id'], row['gene_name'], row['transcript_type']) # Caleb: add transcript type
     return tinfos
 
-def write_lst(l, fn) -> None:
+def write_lst2file(l, fn) -> None:
     with open(fn, 'w') as fh:
         for x in l:
             fh.write(f'{x}\n')
 
-def store_params(args, fn):
+def read_lst(fn) -> list:
+    lst = []
+    with open(fn, 'r') as fh:
+        for x in fh:
+            lst.append(x.strip())
+    return lst
 
+def store_params(args, fn):
     with open(fn, 'w') as f:
         json.dump(args.__dict__, f, indent=2)
+
+def get_unaligned(qfa, ainfos) -> list:
+    unaligned = []
+    for x in qfa:
+        if x.name not in ainfos:
+            unaligned.append(x.name)
+    return unaligned
