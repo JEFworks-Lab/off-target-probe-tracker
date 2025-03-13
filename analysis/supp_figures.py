@@ -12,7 +12,7 @@ from PIL import Image
 import matplotlib.patches as patches
 import sys
 sys.path.append('..')
-from plotting_utils import *
+from utils import *
 import scipy
 import pickle
 import cv2
