@@ -45,12 +45,10 @@ def parse():
                             help="target transcript sequences (fasta)")
     parser_track.add_argument('-a', '--annotation', type=str, required=True, \
                     help="target transcriptome annotation (gff or gtf)")
-    parser_track.add_argument('-m', '--mode', type=str, choices=['pad', 'nm'], \
-                            required=False, default='pad', help="")
     parser_track.add_argument('-pl', '--pad-length', type=int, required=False, \
                     help="", default=0)
-    parser_track.add_argument('-x', '--max-mismatch', type=int, required=False, \
-                    help="", default=1)
+    parser_track.add_argument('-1', '--one-mismatch', action='store_true', \
+                    default=False, required=False, help="")
     
     # stat module
     parser_stat = subparsers.add_parser('stat', help="")
@@ -103,6 +101,9 @@ def main() -> None:
         if not check_track_args(args):
             print(message(f"cannot locate files", Mtype.ERR))
             sys.exit(-1)
+        if args.one_mismatch and args.pad_length > 0:
+            print(message(f"cannot use -1 mode with positive pad_length", Mtype.ERR))
+            sys.exit(-1)
         print(message(f"### TRACK ###", Mtype.PROG))
         param_fn = os.path.join(args.out_dir, "track_params.json")
         store_params(args, param_fn)
@@ -115,7 +116,7 @@ def main() -> None:
             print(message(f"cannot use both --pc-only and --exclude-pseudo flags", Mtype.ERR))
             sys.exit(-1)
         print(message(f"### STAT ###", Mtype.PROG))
-        param_fn = os.path.join(args.out_dir, "pred_params.json")
+        param_fn = os.path.join(args.out_dir, "stat_params.json")
         store_params(args, param_fn)
         stat.main(args)
 
