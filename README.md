@@ -25,7 +25,7 @@ $ otpc -o out_dir flip -i probes.fa -a transcripts.gff -f transcripts.fa
 
 This module outputs forward oriented probe sequences in a file called `fwd_oriented.fa`. 
 
-`track` is the main module that aligns query probe sequences to any target transcriptome. We recommend that the users be conservative when choosing their transcriptome to avoid false positive prediction of off-target binding. `otpc` predict off-target binding by aligning query probes to target transcripts. By default, binding is predicted for only perfect matches (i.e., no indels, clips, or mismatches). See options for flags that allow for more lenient predictions that allow misalignments.
+`track` is the main module that aligns query probe sequences to any target transcriptome. We recommend that the users be mindful of which target transcriptome they are using during this prediction step. `otpc` predict off-target binding by aligning query probes to target transcripts. By default, binding is predicted for only perfect matches (i.e., no indels, clips, or mismatches). See options for flags that allow for more lenient predictions that allow misalignments.
 
 ```
 $ otpc -o out_dir track -q query.fa -t target.fa -a target.gff # query.fa most likely will be fwd_oriented.fa
