@@ -4,3 +4,15 @@
 *.RData
 *~
 .Rproj.user
+caleb/hisat2/*
+caleb/hisat2_genome/*
+tools/
+indices/
+__pycache__/
+build/
+otpc.egg-info/
+test_data/
+test_results/
+analysis/plotting/
+mummer-4.0.1/
+data_genome/
