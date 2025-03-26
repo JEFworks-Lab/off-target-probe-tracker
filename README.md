@@ -2,11 +2,12 @@
 
 `opt` is a simple python program that aligns probe sequences to transcript sequences to detect potential off-target probe activities.
 
+
 ## Installation
 
 `opt` is optimized for linux systems. 
 
-There are few additional packages to install. We recommend that the users install them in a new conda environment as follows:
+You will need to install the following packages, we recommend that the users install them in a new conda environment as follows:
 
 ```
 conda create --name opt pip python=3.9
@@ -14,35 +15,11 @@ conda activate opt
 conda config --add channels bioconda
 conda config --add channels conda-forge
 conda install gffread bowtie2 samtools mummer4 # please check mummer4 version == 4.0.1
+git clone git@github.com:JEFworks/off-target-probe-tracker.git
 cd off-target-probe-tracker/
 pip install .
 ```
 
-It's important the mummer4 version is >= 4.0.1. If not, you can compile and install the latest release of mummer4 available [here](https://github.com/mummer4/mummer/releases). To compile and install mummer4:
-
-
-```
-# if you've downloaded a newer release, replace 4.0.1 with the correct version number
-$ wget https://github.com/mummer4/mummer/releases/download/v4.0.1/mummer-4.0.1.tar.gz
-$ tar -xvzf mummer-4.0.1.tar.gz
-$ cd mummer-4.0.1
-$ ./configure --prefix=$(pwd) # creates binaries within the mummer dir
-$ make
-$ make install
-$ export PATH=$PATH:$(pwd)
-```
-
-To check if you've successfully installed MUMmer4, try running:
-
-```
-mummer -h
-```
-
-You should see the mummer help manual outputted in the terminal.
-
-Note that every time you open a new kernel or shell session, you'll need to repeat the `EXPORT` command. To avoid it, you can add `export PATH=$PATH:$(pwd)` to your kernel / shell config file (e.g., `~/.bashrc`).
-
-Similarly, if samtools is not installing through conda, we recommend that you compile and install it .
 
 ## Usage
 
@@ -74,11 +51,6 @@ opt -o out_dir stat -i probe2targets.tsv -q query.fa
 
 For each targeted gene, the `stat.summary.tsv` file shows the number of probes and the genes those probes aligns to. For each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). Finally, the `collapsed_summary.tsv` file shows the target gene, number of probes, genes that the probes aligned to, number of alignments, and number of probes aligned to each gene in column 3 (similar to what is shown in Table 1 of our paper).
 
-## Note
-
-The target gene name and ID within the query.fa is expected to be in the following format:
-
-`>gene_id|gene_name|accession`
 
 ## Arguments
 
@@ -140,3 +112,39 @@ Usage: opt [common_args] [MODULE] [args]
       -s, --syn-file
           gene synonyms CSV file with 2 columns
 ```
+
+
+## Notes
+
+### Probe ID format
+
+The target gene name and ID within the query.fa is expected to be in the following format:
+
+`>gene_id|gene_name|accession`
+
+### mummer4 installation
+
+It's important the mummer4 version is >= 4.0.1. If not, you can compile and install the latest release of mummer4 available [here](https://github.com/mummer4/mummer/releases). To compile and install mummer4:
+
+```
+# if you've downloaded a newer release, replace 4.0.1 with the correct version number
+$ wget https://github.com/mummer4/mummer/releases/download/v4.0.1/mummer-4.0.1.tar.gz
+$ tar -xvzf mummer-4.0.1.tar.gz
+$ cd mummer-4.0.1
+$ ./configure --prefix=$(pwd) # creates binaries within the mummer dir
+$ make
+$ make install
+$ export PATH=$PATH:$(pwd)
+```
+
+To check if you've successfully installed MUMmer4, try running:
+
+```
+mummer -h
+```
+
+You should see the mummer help manual outputted in the terminal.
+
+Note that every time you open a new kernel or shell session, you'll need to repeat the `EXPORT` command. To avoid it, you can add `export PATH=$PATH:$(pwd)` to your kernel / shell config file (e.g., `~/.bashrc`).
+
+Similarly, if samtools is not installing through conda, we recommend that you compile and install it .
