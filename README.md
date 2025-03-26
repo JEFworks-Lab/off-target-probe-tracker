@@ -7,11 +7,14 @@
 `opt` is optimized for linux systems. We recommend that the users install the program in a conda environment as follows:
 
 ```
-conda create --name opt pip
+conda create --name opt pip python=3.9
 conda activate opt
 conda install bioconda::mummer4
-conda install samtools
-conda install bioconda::gffread bioconda::bowtie2
+conda install bioconda::gffread
+conda install bioconda::samtools
+conda install -c bioconda -c conda-forge bowtie2
+git clone git@github.com:JEFworks-Lab/off-target-probe-tracker.git
+cd off-target-probe-tracker/
 pip install .
 ```
 

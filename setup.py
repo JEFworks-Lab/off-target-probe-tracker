@@ -15,6 +15,9 @@ setup(
 	install_requires=[
         'pysam',
         'numpy',
+        'scipy',
+        'matplotlib',
+        'scikit-learn',
         'pandas',
         'biopython',
         'pyfastx',
