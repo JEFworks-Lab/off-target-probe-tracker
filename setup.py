@@ -14,7 +14,7 @@ setup(
 	url="https://github.com/JEFworks/off-target-probe-tracker",
 	install_requires=[
         'pysam',
-        'numpy=1.24',
+        'numpy==1.24',
         'scipy',
         'matplotlib',
         'scikit-learn',

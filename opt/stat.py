@@ -138,7 +138,7 @@ def write_summary(d, agg, pgene_info, gene_syns):
                 clpsed[p_gname][1].append(str(temp[0]))
                 clpsed[p_gname][2].append(str(temp[1]))
                 fh.write(f'{p_gname}\t{pgene_info[p_gname]}\t{gname}')
-                fh.write(f'\t{temp[0]}\t{temp[1]}\t[{','.join(temp[2])}]\n')
+                fh.write(f'\t{temp[0]}\t{temp[1]}\t[{",".join(temp[2])}]\n')
 
     missed_target = []
     off_target = []
@@ -149,7 +149,7 @@ def write_summary(d, agg, pgene_info, gene_syns):
         for p_gname in clpsed:
             temp = clpsed[p_gname]
             fh.write(f'{p_gname}\t{pgene_info[p_gname]}\t[{','.join(temp[0])}]')
-            fh.write(f'\t[{','.join(temp[1])}]\t[{','.join(temp[2])}]\n')
+            fh.write(f'\t[{",".join(temp[1])}]\t[{",".join(temp[2])}]\n')
             gnames = temp[0]
 
             off = False
