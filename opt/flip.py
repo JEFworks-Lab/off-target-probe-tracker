@@ -1,4 +1,4 @@
-from otpc.commons import *
+from opt.commons import *
 
 def check_sinfo_completeness(qinfos, tinfos):
     tgt_gids = set([x[0] for x in tinfos.values()])

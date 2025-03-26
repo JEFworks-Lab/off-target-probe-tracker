@@ -1,4 +1,4 @@
-from otpc.commons import *
+from opt.commons import *
 
 def convert_md2bit(s):
     running = ""

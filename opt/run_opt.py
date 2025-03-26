@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-from otpc.commons import *
-from otpc import flip, track, stat
+from opt.commons import *
+from opt import flip, track, stat
 
 def parse():
     parser = argparse.ArgumentParser(description="")
