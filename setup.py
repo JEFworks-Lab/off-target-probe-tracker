@@ -18,6 +18,7 @@ setup(
         'scipy',
         'matplotlib',
         'scikit-learn',
+        'scprep',
         'pandas',
         'biopython',
         'pyfastx',
