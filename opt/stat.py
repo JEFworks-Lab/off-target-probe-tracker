@@ -148,7 +148,7 @@ def write_summary(d, agg, pgene_info, gene_syns):
         fh.write('target_gene\tn\taligned_to\tn_hits\tn_probes\n')
         for p_gname in clpsed:
             temp = clpsed[p_gname]
-            fh.write(f'{p_gname}\t{pgene_info[p_gname]}\t[{','.join(temp[0])}]')
+            fh.write(f'{p_gname}\t{pgene_info[p_gname]}\t[{",".join(temp[0])}]')
             fh.write(f'\t[{",".join(temp[1])}]\t[{",".join(temp[2])}]\n')
             gnames = temp[0]
 
