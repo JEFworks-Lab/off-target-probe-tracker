@@ -18,6 +18,16 @@ cd off-target-probe-tracker/
 pip install .
 ```
 
+```
+Wget https://github.com/mummer4/mummer/releases/download/v4.0.1/mummer-4.0.1.tar.g
+tar -xvzf mummer-4.0.1.tar.gz
+Cd mummer-4.0.1
+./configure --prefix=$(pwd)
+Make
+Make install
+export PATH=$PATH:$(pwd)
+```
+
 ## Usage
 
 `opt` consists of three modules: `flip`, `track`, and `stat`. 
