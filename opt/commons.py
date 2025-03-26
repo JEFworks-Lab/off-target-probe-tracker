@@ -117,24 +117,24 @@ def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
                 if len(temp) > 1:
                     temp = [x.strip() for x in temp]
                     gname = ';'.join(temp)
-            ttype = att_d.get(schema[4], None) # Caleb: add transcript type
-            tinfos[tid] = (gid, gname, ttype) # Caleb: add transcript type
+            ttype = att_d.get(schema[4], None)
+            tinfos[tid] = (gid, gname, ttype)
     print(message(f"loaded {ctr} transcripts", Mtype.PROG))
     return tinfos
 
 def write_tinfos(fn, tinfos) -> None:
     with open(fn, 'w') as fh:
-        fh.write('transcript_id,gene_id,gene_name,transcript_type\n') # Caleb: add transcript type
+        fh.write('transcript_id,gene_id,gene_name,transcript_type\n')
         for x in tinfos:
-            y, z, ttype = tinfos[x] # Caleb: add transcript type
-            fh.write(f'{x},{y},{z},{ttype}\n') # Caleb: add transcript type
+            y, z, ttype = tinfos[x]
+            fh.write(f'{x},{y},{z},{ttype}\n')
 
 def load_tinfos(fn) -> dict:
     tinfos = dict()
     df = pd.read_csv(fn)
     with open(fn, 'r') as fh:
         for _, row in df.iterrows():
-            tinfos[row['transcript_id']] = (row['gene_id'], row['gene_name'], row['transcript_type']) # Caleb: add transcript type
+            tinfos[row['transcript_id']] = (row['gene_id'], row['gene_name'], row['transcript_type'])
     return tinfos
 
 def write_lst2file(l, fn) -> None:

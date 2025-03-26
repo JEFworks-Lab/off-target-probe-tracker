@@ -1,49 +1,55 @@
-# `otpc`: off-target-probe-checker
+# `opt`: Off-target Probe Tracker
 
-`otpc` is a simple python program that aligns probe sequences to transcript sequences to detect potential off-target probe activities.
+`opt` is a simple python program that aligns probe sequences to transcript sequences to detect potential off-target probe activities.
 
 ## Installation
 
-`otpc` is optimized for linux systems. We recommend that the users install the program in a conda environment as follows:
+`opt` is optimized for linux systems. We recommend that the users install the program in a conda environment as follows:
 
 ```
-$ conda create --name otpc pip
-$ conda activate otpc
-$ conda install bioconda::mummer4
-$ conda install samtools
-$ conda install bioconda::gffread bioconda::bowtie2
-$ pip install .
+conda create --name opt pip
+conda activate opt
+conda install bioconda::mummer4
+conda install samtools
+conda install bioconda::gffread bioconda::bowtie2
+pip install .
 ```
 
 ## Usage
 
-`otpc` consists of three modules: `flip`, `track`, and `stat`. `flip` corrects probes that are aligning to the opposite strand of their intended target genes, by reverse complementing them. We assume probe sequences are designed in the same strand as their targets. The module requires the annotation for the target transcripts as well as their sequences. We recommend that the users use [gffread](https://github.com/gpertea/gffread) to extract processed transcript sequences from annotation GFF/GTF files (e.g., `$ gffread -w transcripts.fa -g genome.fa transcripts.gff`).
+`opt` consists of three modules: `flip`, `track`, and `stat`. 
+
+`flip` corrects probes that are aligning to the opposite strand of their intended target genes by reverse complementing them. We assume probe sequences are designed in the same strand as their targets. The module requires the annotation for the target transcripts as well as their sequences. We recommend that the users use [gffread](https://github.com/gpertea/gffread) to extract processed transcript sequences from annotation GFF/GTF files (e.g., `$ gffread -w transcripts.fa -g genome.fa transcripts.gff`).
 
 ```
-$ otpc -o out_dir flip -i probes.fa -a transcripts.gff -f transcripts.fa
+opt -o out_dir flip -i probes.fa -a transcripts.gff -f transcripts.fa
 ```
 
 This module outputs forward oriented probe sequences in a file called `fwd_oriented.fa`. 
 
-`track` is the main module that aligns query probe sequences to any target transcriptome. We recommend that the users be mindful of which target transcriptome they are using during this prediction step. `otpc` predict off-target binding by aligning query probes to target transcripts. By default, binding is predicted for only perfect matches (i.e., no indels, clips, or mismatches). See options for flags that allow for more lenient predictions that allow misalignments.
+`track` is the main module that aligns query probe sequences to any target transcriptome. We recommend that the users be mindful of which target transcriptome they are using during this prediction step. `opt` predicts off-target binding by aligning query probes to target transcripts. By default, binding is predicted for only perfect matches (i.e., no indels, clips, or mismatches). See options for flags that allow for more lenient predictions that allow for misalignments.
+
+Note that query.fa most likely will be fwd_oriented.fa
 
 ```
-$ otpc -o out_dir track -q query.fa -t target.fa -a target.gff # query.fa most likely will be fwd_oriented.fa
+opt -o out_dir track -q query.fa -t target.fa -a target.gff
 ```
 
-This module outputs a CSV file containing the gene and transcript information to which each probe aligns. Each probe is also annotated with the number of genes it aligns to as well as the CIGAR strings for its alignments.
+This module outputs a CSV file containing the gene and transcript information to which each probe aligns in a file called `probe2targets.tsv`. Each probe is also annotated with the number of genes it aligns to as well as the CIGAR strings for its alignments.
+
+`stat` will summarize `opt` binding predictions.
 
 ```
-$ otpc -o out_dir stat -i probe2targets.tsv -q query.fa
+opt -o out_dir stat -i probe2targets.tsv -q query.fa
 ```
 
-This module summarizes `otpc` binding predictions. For each targeted gene, stat.summary.tsv file shows the number of probes and the genes those probes aligns to. Each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). 
+For each targeted gene, the `stat.summary.tsv` file shows the number of probes and the genes those probes aligns to. For each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). Finally, the `collapsed_summary.tsv` file shows the target gene, number of probes, genes that the probes aligned to, number of alignments, and number of probes aligned to each gene in column 3 (similar to what is shown in Table 1 of our paper).
 
 ## Arguments
 
 See below for the complete list of arguments:
 ```
-Usage: otpc [common_args] [MODULE] [args]
+Usage: opt [common_args] [MODULE] [args]
 
 *common_args
       -o, --out-dir
