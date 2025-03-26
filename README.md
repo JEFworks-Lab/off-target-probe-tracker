@@ -48,6 +48,12 @@ opt -o out_dir stat -i probe2targets.tsv -q query.fa
 
 For each targeted gene, the `stat.summary.tsv` file shows the number of probes and the genes those probes aligns to. For each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). Finally, the `collapsed_summary.tsv` file shows the target gene, number of probes, genes that the probes aligned to, number of alignments, and number of probes aligned to each gene in column 3 (similar to what is shown in Table 1 of our paper).
 
+## Note
+
+The target gene name and ID within the query.fa is expected to be in the following format:
+
+`>gene_id|gene_name|accession`
+
 ## Arguments
 
 See below for the complete list of arguments:
