@@ -1,4 +1,4 @@
-# `opt`: <ins>O</ins>ff-target Probe Tracker
+# `opt`: <ins>O</ins>ff-target <ins>P</ins>robe <ins>T</ins>racker
 
 `opt` is a simple python program that aligns probe sequences to transcript sequences to detect potential off-target probe activities.
 
