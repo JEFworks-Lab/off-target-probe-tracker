@@ -14,12 +14,12 @@ conda create --name opt pip python=3.9
 conda activate opt
 conda config --add channels bioconda
 conda config --add channels conda-forge
-conda install gffread bowtie2 samtools mummer4 # please check mummer4 version == 4.0.1
+conda install gffread bowtie2 samtools mummer4
 git clone git@github.com:JEFworks/off-target-probe-tracker.git
 cd off-target-probe-tracker/
 pip install .
 ```
-
+please check mummer4 version == 4.0.1
 
 ## Usage
 
