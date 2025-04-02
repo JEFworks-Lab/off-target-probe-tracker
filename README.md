@@ -86,7 +86,7 @@ Usage: opt [common_args] [MODULE] [args]
 
 ## Usage
 
-There is a full example located in the [example.ipynb](https://github.com/JEFworks-Lab/off-target-probe-tracker/blob/main/example.ipynb) file. Below will describe what each module does.
+There is a full example located in the [example.ipynb](https://github.com/JEFworks-Lab/off-target-probe-tracker/blob/main/example.ipynb) file. Below briefly describes what each module does.
 
 `opt` consists of three modules: `flip`, `track`, and `stat`. 
 
