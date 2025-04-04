@@ -5,7 +5,10 @@
 
 ## Installation
 
-`opt` is optimized for linux systems. Due to package dependencies, we cannot guarantee it will work as expected for Mac and Windows.
+`opt` has been tested on Linux and Mac systems.
+
+
+### Linux Installation
 
 You will need to install the following packages and this repo. We recommend that the users install them in a new conda environment as follows:
 
@@ -20,6 +23,31 @@ cd off-target-probe-tracker/
 pip install .
 ```
 Please check mummer4 version == 4.0.1
+
+
+### Mac Installation
+
+You will need to install the following packages and this repo. We recommend that the users install them in a new conda environment as follows:
+
+```
+conda create --name opt pip python=3.9
+conda activate opt
+conda config --add channels bioconda
+conda config --add channels conda-forge
+conda install gffread bowtie2 samtools
+git clone git@github.com:JEFworks/off-target-probe-tracker.git
+cd off-target-probe-tracker/
+pip install .
+```
+
+To install mummer4 on Mac, you will need to use Brew rather than conda. Note that this will install it on your machine and not within the conda environment. To install mummer4 on Mac, use the following commands:
+
+```
+brew install autoconf automake libtool md5sha1sum
+gem install yaggo
+brew install mummer
+```
+These instructions can be found on the mummer [installation.md](https://github.com/mummer4/mummer/blob/master/INSTALL.md). Please check mummer4 version == 4.0.1
 
 
 ## Arguments
