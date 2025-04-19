@@ -73,7 +73,7 @@ Usage: opt [common_args] [MODULE] [args]
           When loading an annotation file, the following five keys must be specified to
             define the schema used. These keys help extract essential transcript and
             gene information from the GTF/GFF file:
-            1. feature type. feature types (3rd col) used for transcript entries
+            1. feature type (3rd col) used for transcript entries
             2. transcript ID attribute (contained in 9th col)
             3. parent attribute for transcripts (contained in 9th col)
             4. gene name attribute (contained in 9th col)
