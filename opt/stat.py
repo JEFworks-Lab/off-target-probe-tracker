@@ -1,5 +1,4 @@
 from opt.commons import *
-import pandas as pd
 from collections import namedtuple
 
 class Hit:

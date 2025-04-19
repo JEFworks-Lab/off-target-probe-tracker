@@ -354,6 +354,7 @@ def write_results(ainfos, d) -> list:
 
 def main(args) -> None:
     print(message(f"aligning query probes to target transcripts", Mtype.PROG))
+    
     if args.one_mismatch:
         afn = align_nm(args.query, args.target, "track", args)
     else:
@@ -363,7 +364,8 @@ def main(args) -> None:
     print(message(f"loading target transcriptome infos", Mtype.PROG))
     fn = os.path.join(args.out_dir, 'track_t2g.csv')
     if not os.path.exists(fn) or args.force:
-        att_sep = ' ' if args.gtf else '='
+        # att_sep = ' ' if args.gtf else '='
+        att_sep = check_annotation_ext(args.annotation)
         print(message(f"building t2g mappings", Mtype.PROG))
         tinfos = build_tinfos(args.annotation, att_sep, args.schema, args.keep_dot)
         write_tinfos(fn, tinfos)

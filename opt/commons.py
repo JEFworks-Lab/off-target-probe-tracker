@@ -9,6 +9,7 @@ from enum import Enum
 import sys
 from Bio.Seq import Seq
 import json
+from pathlib import Path
 
 RED = '\033[31m'
 GREEN = '\033[32m'
@@ -23,6 +24,18 @@ def message(s, mtype) -> str:
     if mtype not in Mtype:
         raise Exception("Error while printing message")
     return f"{datetime.now()} {mtype.value[0]}{mtype.value[1]}{RESET} {s}"
+
+def check_annotation_ext(fn) -> str:
+    file_ext = Path(fn).suffix.lower()
+    att_sep = None
+    if file_ext == '.gtf':
+        att_sep =  ' '
+    elif file_ext == '.gff':
+        att_sep =  '='
+    else:
+        print(message(f"recognized annotation format; must either be gff or gtf", Mtype.ERR))
+        sys.exit(-1)
+    return att_sep
 
 def align(qfn, tfn, prefix, norc, args) -> str:
     ofn = os.path.join(args.out_dir, f'{prefix}.bam' if args.bam else f'{prefix}.sam')
@@ -70,7 +83,7 @@ def align(qfn, tfn, prefix, norc, args) -> str:
         else:
             cmd = f'{aligner} {f_flag} --maxmatch -l {args.min_exact_match} -c 0 -t {args.threads} ' + \
                 f'{tfn} {qfn} --sam-long={ofn}'
-            print(cmd); call(cmd, shell=True)
+            #print(cmd); call(cmd, shell=True)
     return ofn
 
 def align_nm(qfn, tfn, prefix, args) -> str:
@@ -89,16 +102,16 @@ def att2dict(s, sep):
     temp = s.split(';')
     d = dict()
     for x in temp:
-        kv = x.split(sep)
+        kv = x.strip().split(sep)
         if len(kv) != 2: continue
         k = kv[0].strip()
-        v = kv[1].strip()
+        v = kv[1].strip().replace('"', '')
         d[k] = v
     return d
 
 # tinfo <k,v> = <transcript_id, gene_id>
 def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
-    df = pd.read_csv(fn, sep='\t', header=None)
+    df = pd.read_csv(fn, sep='\t', header=None, comment='#')
     df.columns = ['ctg', 'src', 'feat', 'start', 'end', 'score', 'strand', 'frame', 'att']
     tinfos = dict()
     ctr = 0
@@ -120,6 +133,7 @@ def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
             ttype = att_d.get(schema[4], None)
             tinfos[tid] = (gid, gname, ttype)
     print(message(f"loaded {ctr} transcripts", Mtype.PROG))
+    # print(tinfos)
     return tinfos
 
 def write_tinfos(fn, tinfos) -> None:

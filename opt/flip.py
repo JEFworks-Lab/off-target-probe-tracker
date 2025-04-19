@@ -75,12 +75,12 @@ def flip(ainfos, pfa, out_dir):
 def main(args) -> None:
     print(message(f"aligning input probes to source transcripts", Mtype.PROG))
     bfn = align(args.in_file, args.src_fasta, 'flip', False, args)
-    att_sep = ' ' if args.gtf else '='
+    # att_sep = ' ' if args.gtf else '='
+    att_sep = check_annotation_ext(args.src_annotation)
 
     fn = os.path.join(args.out_dir, 'flip_t2g.csv')
     print(message(f"loading source transcriptome infos", Mtype.PROG))
     if not os.path.exists(fn) or args.force:
-        att_sep = ' ' if args.gtf else '='
         print(message(f"building t2g mappings", Mtype.PROG))
         sinfos = build_tinfos(args.src_annotation, att_sep, args.schema, args.keep_dot)
         write_tinfos(fn, sinfos)
