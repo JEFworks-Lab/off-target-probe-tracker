@@ -84,8 +84,7 @@ Usage: opt [common_args] [MODULE] [args]
       --keep-dot
           TODO
       --force
-          prevents OPT from skipping steps based on the existence of specific files from
-            previous run (useful when the prev run was unsuccessful)
+          prevents the program from loading results saved from previous runs
       --skip-index
           skip bowtie2 index building step
       
