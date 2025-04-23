@@ -83,7 +83,7 @@ def align(qfn, tfn, prefix, norc, args) -> str:
         else:
             cmd = f'{aligner} {f_flag} --maxmatch -l {args.min_exact_match} -c 0 -t {args.threads} ' + \
                 f'{tfn} {qfn} --sam-long={ofn}'
-            #print(cmd); call(cmd, shell=True)
+            print(cmd); call(cmd, shell=True)
     return ofn
 
 def align_nm(qfn, tfn, prefix, args) -> str:
@@ -133,7 +133,6 @@ def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
             ttype = att_d.get(schema[4], None)
             tinfos[tid] = (gid, gname, ttype)
     print(message(f"loaded {ctr} transcripts", Mtype.PROG))
-    # print(tinfos)
     return tinfos
 
 def write_tinfos(fn, tinfos) -> None:
