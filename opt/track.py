@@ -330,12 +330,12 @@ def write_results(ainfos, d) -> list:
             if len(ainfos[qname]) == 0:
                 no_hit.append(qname)
                 continue
-            tnames = [x[0] for x in ainfos[qname]]
-            genes = [x[1] for x in ainfos[qname]]
-            gids = [x[0] for x in genes]
-            gnames = [x[1] for x in genes]
-            ttypes = [x[2] for x in ainfos[qname]]
-            cigars = [x[3] for x in ainfos[qname]]
+            tnames = [str(x[0]) for x in ainfos[qname]]
+            genes = [str(x[1]) for x in ainfos[qname]]
+            gids = [str(x[0]) for x in genes]
+            gnames = [str(x[1]) for x in genes]
+            ttypes = [str(x[2]) for x in ainfos[qname]]
+            cigars = [str(x[3]) for x in ainfos[qname]]
             try:
                 assert len(gids) == len(gnames) # sanity check
             except:
