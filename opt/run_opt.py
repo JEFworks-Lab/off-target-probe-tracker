@@ -119,6 +119,15 @@ def main() -> None:
         param_fn = os.path.join(args.out_dir, "stat_params.json")
         store_params(args, param_fn)
         stat.main(args)
+    # adding an option to do all three modules in one go
+    elif args.module == 'all':
+        print(message(f"### ALL ###", Mtype.PROG))
+        param_fn = os.path.join(args.out_dir, "all_params.json")
+        store_params(args, param_fn)
+        flip.main(args)
+        track.main(args)
+        stat.main(args)
+
 
 if __name__ == "__main__":
     main()
