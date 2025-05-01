@@ -13,7 +13,7 @@ def parse():
     parser.add_argument('--bam', action='store_true', default=False, required=False, help="")
     parser.add_argument('-b', '--binary', type=str, default=None, required=False, help="")
     parser.add_argument('--bowtie2', action='store_true', default=False, required=False, help="")
-    parser.add_argument('--gtf', action='store_true', default=False, required=False, help="")
+    # parser.add_argument('--gtf', action='store_true', default=False, required=False, help="") # deprecated
     parser.add_argument('-l', '--min-exact-match', required=False, help="", \
                 default=20, type=int)
     parser.add_argument('--schema', type=lambda s: s.split(','), required=False, \

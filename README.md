@@ -70,11 +70,21 @@ Usage: opt [common_args] [MODULE] [args]
       -l, --min-exact-match
           minimum exact match for mummer alignments
       --schema
-          TODO
+          When loading an annotation file, the following five keys must be specified to
+            define the schema used. These keys help extract essential transcript and
+            gene information from the GTF/GFF file:
+            1. feature type (3rd col) used for transcript entries
+            2. transcript ID attribute (contained in 9th col)
+            3. parent attribute for transcripts (contained in 9th col)
+            4. gene name attribute (contained in 9th col)
+            5. transcript type attribute (contained in 9th col)
+
+            NOTE: annotations vary greatly in formats, so if you need assistance with
+            determining which schema is appropriate, please open a git issue.
       --keep-dot
           TODO
       --force
-          TODO
+          prevents the program from loading results saved from previous runs
       --skip-index
           skip bowtie2 index building step
       

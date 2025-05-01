@@ -330,12 +330,12 @@ def write_results(ainfos, d) -> list:
             if len(ainfos[qname]) == 0:
                 no_hit.append(qname)
                 continue
-            tnames = [x[0] for x in ainfos[qname]]
-            genes = [x[1] for x in ainfos[qname]]
-            gids = [x[0] for x in genes]
-            gnames = [x[1] for x in genes]
-            ttypes = [x[2] for x in ainfos[qname]]
-            cigars = [x[3] for x in ainfos[qname]]
+            tnames = [str(x[0]) for x in ainfos[qname]]
+            genes = [str(x[1]) for x in ainfos[qname]]
+            gids = [str(x[0]) for x in genes]
+            gnames = [str(x[1]) for x in genes]
+            ttypes = [str(x[2]) for x in ainfos[qname]]
+            cigars = [str(x[3]) for x in ainfos[qname]]
             try:
                 assert len(gids) == len(gnames) # sanity check
             except:
@@ -354,6 +354,7 @@ def write_results(ainfos, d) -> list:
 
 def main(args) -> None:
     print(message(f"aligning query probes to target transcripts", Mtype.PROG))
+    
     if args.one_mismatch:
         afn = align_nm(args.query, args.target, "track", args)
     else:
@@ -363,7 +364,8 @@ def main(args) -> None:
     print(message(f"loading target transcriptome infos", Mtype.PROG))
     fn = os.path.join(args.out_dir, 'track_t2g.csv')
     if not os.path.exists(fn) or args.force:
-        att_sep = ' ' if args.gtf else '='
+        # att_sep = ' ' if args.gtf else '='
+        att_sep = check_annotation_ext(args.annotation)
         print(message(f"building t2g mappings", Mtype.PROG))
         tinfos = build_tinfos(args.annotation, att_sep, args.schema, args.keep_dot)
         write_tinfos(fn, tinfos)
