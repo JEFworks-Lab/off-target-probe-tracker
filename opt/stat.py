@@ -200,6 +200,8 @@ def load_gene_syns(fn) -> dict:
 def main(args) -> None:
     gene_syns = load_gene_syns(args.syn_file) if args.syn_file else []
     pgene_info = load_pgene_info(args.query)
+    if args.in_file is None:
+        args.in_file = os.path.join(args.out_dir, 'probe2targets.tsv')
     track_df = pd.read_csv(args.in_file, sep='\t')
     prb_gene_tbl = load_track_results(track_df, args.out_dir, gene_syns, args.exclude_pseudo, args.pc_only)
     print(message(f"number of probe genes: {len(prb_gene_tbl)}", Mtype.PROG))
