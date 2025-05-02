@@ -6,7 +6,7 @@ QRY="${DATADIR}/probes.fa"
 TGT_1="${DATADIR}/annotation.gff"
 TGT_2="${DATADIR}/annotation.fa"
 
-opt -o $RESULTS flip -i $QRY -a $TGT_1 -f $TGT_2 > "${RESULTS}/flip.out"
+opt -o $RESULTS flip -q $QRY -a $TGT_1 -t $TGT_2 > "${RESULTS}/flip.out"
 
 set +x
 
