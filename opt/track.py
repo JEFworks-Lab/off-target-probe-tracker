@@ -330,24 +330,25 @@ def write_results(ainfos, d) -> list:
             if len(ainfos[qname]) == 0:
                 no_hit.append(qname)
                 continue
-            tnames = [str(x[0]) for x in ainfos[qname]]
-            genes = [str(x[1]) for x in ainfos[qname]]
-            gids = [str(x[0]) for x in genes]
-            gnames = [str(x[1]) for x in genes]
-            ttypes = [str(x[2]) for x in ainfos[qname]]
-            cigars = [str(x[3]) for x in ainfos[qname]]
+            tnames = [x[0] for x in ainfos[qname]]
+            genes = [x[1] for x in ainfos[qname]]
+            gids = [x[0] for x in genes]
+            gnames = [x[1] for x in genes]
+            ttypes = [x[2] for x in ainfos[qname]]
+            cigars = [x[3] for x in ainfos[qname]]
             try:
                 assert len(gids) == len(gnames) # sanity check
             except:
                 print(message(f">1 reference gene IDs might share the same gene name", Mtype.WARN))
                 print(gids)
                 print(gnames)
-            gids_s = ','.join(gids)
-            # handle no gene names
+
+            # handle cases with none values      
+            gids_s = ','.join([str(x) for x in gids])
             gnames_s = ','.join('None' if x is None else x for x in gnames)
-            cigar_s = ','.join(cigars)
-            ttypes_s = ','.join(ttypes)
-            tnames_s = ','.join(tnames)
+            cigar_s = ','.join([str(x) for x in cigars])
+            ttypes_s = ','.join([str(x) for x in ttypes])
+            tnames_s = ','.join([str(x) for x in tnames])
             # n_genes = # of distinct gene_names
             fh.write(f'{qname}\t{len(set(gnames))}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n')
     return no_hit
@@ -355,6 +356,11 @@ def write_results(ainfos, d) -> list:
 def main(args) -> None:
     print(message(f"aligning query probes to target transcripts", Mtype.PROG))
     
+    # if in all mode, make query fwd_oriented.fa
+    if args.module == 'all':
+        print(message(f"using fwd_oriented.fa probes", Mtype.PROG))
+        args.query = os.path.join(args.out_dir, 'fwd_oriented.fa')
+
     if args.one_mismatch:
         afn = align_nm(args.query, args.target, "track", args)
     else:
