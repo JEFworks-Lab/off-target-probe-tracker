@@ -87,14 +87,32 @@ Usage: opt [common_args] [MODULE] [args]
           prevents the program from loading results saved from previous runs
       --skip-index
           skip bowtie2 index building step
+
+*all args / options:
+      -q, --query
+          query probe sequences fasta (REQUIRED)
+      -t, --target
+          target transcript sequences fasta (REQUIRED)
+      -a, --annotation
+          target transcript annotation (REQUIRED)
+      -1, --one-mismatch
+          allow upto 1 mismatch
+      -pl, --pad-length
+          length of the pad where mis-alignment is allowed
+      --exclude-pseudo
+          exclude pseudogenes when counting off-target probes and affected genes
+      --pc-only
+          only include protein coding genes
+      -s, --syn-file
+          gene synonyms CSV file with 2 columns
       
 *flip args / options:
-      -i, --in-file
-          probe sequences fasta (REQUIRED)
-      -a, --src-annotation
-          source transcripts annotation (REQUIRED)
-      -f, --src-fasta
-          source transcript sequences fasta (REQUIRED)
+      -q, --query
+          query probe sequences fasta (REQUIRED)
+      -t, --target
+          target transcript sequences fasta (REQUIRED)
+      -a, --annotation
+          target transcript annotation (REQUIRED)
 
 *track args / options:
       -q, --query
@@ -128,10 +146,16 @@ There is a full example located in the [example.ipynb](https://github.com/JEFwor
 
 `opt` consists of three modules: `flip`, `track`, and `stat`. 
 
+The `all` module will do all three modules at once so you don't have to run them separately.
+
+```
+opt -o out_dir all -q probes.fa -a transcripts.gff -t transcripts.fa
+```
+
 `flip` corrects probes that are aligning to the opposite strand of their intended target genes by reverse complementing them. We assume probe sequences are designed in the same strand as their targets. The module requires the annotation for the target transcripts as well as their sequences. We recommend that the users use [gffread](https://github.com/gpertea/gffread) to extract processed transcript sequences from annotation GFF/GTF files (e.g., `$ gffread -w transcripts.fa -g genome.fa transcripts.gff`).
 
 ```
-opt -o out_dir flip -i probes.fa -a transcripts.gff -f transcripts.fa
+opt -o out_dir flip -q probes.fa -a transcripts.gff -t transcripts.fa
 ```
 
 This module outputs forward oriented probe sequences in a file called `fwd_oriented.fa`. 
@@ -153,6 +177,7 @@ opt -o out_dir stat -i probe2targets.tsv -q query.fa
 ```
 
 For each targeted gene, the `stat.summary.tsv` file shows the number of probes and the genes those probes aligns to. For each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). Finally, the `collapsed_summary.tsv` file shows the target gene, number of probes, genes that the probes aligned to, number of alignments, and number of probes aligned to each gene in column 3 (similar to what is shown in Table 1 of our paper).
+
 
 
 ## Notes
