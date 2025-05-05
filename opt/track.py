@@ -308,14 +308,14 @@ def check_lft_and_rgt(mrec, qname, qry_fa, tgt_fa, max_nm):
     nm = lft_nm + rgt_nm
     return (nm <= max_nm, mvec, nm)
 
-def track_target_nm(fn, qfa, tfa, max_nm, tinfos) -> dict:
+def track_target_one_mismatch(fn, qfa, tfa, tinfos) -> dict:
     mums = load_mums(fn)
     ainfos = dict()
     for qname in mums:
         ainfos[qname] = set()
         for mrec in mums[qname]:
             tname = mrec[0]
-            is_pass, mvec, _ = check_lft_and_rgt(mrec, qname, qfa, tfa, max_nm)
+            is_pass, mvec, _ = check_lft_and_rgt(mrec, qname, qfa, tfa, 1)
             if is_pass:
                 ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
                                             tinfos[tname][2], compress_bvec(mvec)))
@@ -414,7 +414,7 @@ def main(args) -> None:
         unaligned = get_unaligned(qfa, ainfos)
     else:
         tfa = pyfastx.Fasta(args.target)
-        ainfos = track_target_nm(afn, qfa, tfa, args.max_mismatch, tinfos)
+        ainfos = track_target_one_mismatch(afn, qfa, tfa, tinfos)
         unaligned = get_unaligned(qfa, ainfos)
     print(message(f"{len(unaligned)} / {len(qfa)} probes unmapped", Mtype.PROG))
     write_lst2file(unaligned, os.path.join(args.out_dir, 'track.unmapped.txt'))

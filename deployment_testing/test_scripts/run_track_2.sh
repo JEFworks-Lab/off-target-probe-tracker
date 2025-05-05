@@ -2,16 +2,18 @@
 
 set -x
 
-QRY="${DATADIR}/probes.fa"
+QRY="${DATADIR}/probes.fwd.fa"
 TGT_1="${DATADIR}/annotation.gff"
 TGT_2="${DATADIR}/annotation.fa"
 
-opt -o $RESULTS -p $THREADS flip -q $QRY -a $TGT_1 -t $TGT_2 > "${RESULTS}/flip.out"
+opt -o $RESULTS -p $THREADS track -q $QRY -a $TGT_1 -t $TGT_2 -1
+"${SCRIPTS}/check_eq.py" "${DATADIR}/probe2targets.expected.2.tsv" \
+    "${RESULTS}/probe2targets.tsv" "${RESULTS}/eq.out"
 
 set +x
 
-ACTUAL=$(wc -l < "${RESULTS}/rev_cmped_probes.txt")
-TARGET=2
+ACTUAL=$(cat "${RESULTS}/eq.out")
+TARGET=1
 awk -v actual="$ACTUAL" -v target="$TARGET" ' 
     BEGIN {
         print (actual == target) ? "GOOD" : "BAD"

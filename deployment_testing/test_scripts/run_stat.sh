@@ -2,15 +2,14 @@
 
 set -x
 
-QRY="${DATADIR}/probes.fa"
-TGT_1="${DATADIR}/annotation.gff"
-TGT_2="${DATADIR}/annotation.fa"
+QRY="${DATADIR}/probes.fwd.fa"
+IN="${DATADIR}/probe2targets.expected.1.tsv"
 
-opt -o $RESULTS -p $THREADS flip -q $QRY -a $TGT_1 -t $TGT_2 > "${RESULTS}/flip.out"
+opt -o $RESULTS stat -i $IN -q $QRY > "${RESULTS}/stat.out"
 
 set +x
 
-ACTUAL=$(wc -l < "${RESULTS}/rev_cmped_probes.txt")
+ACTUAL=$(wc -l < "${RESULTS}/stat_off_target_probes.txt")
 TARGET=2
 awk -v actual="$ACTUAL" -v target="$TARGET" ' 
     BEGIN {
