@@ -351,6 +351,36 @@ def write_results(ainfos, d) -> list:
             tnames_s = ','.join([str(x) for x in tnames])
             # n_genes = # of distinct gene_names
             fh.write(f'{qname}\t{len(set(gnames))}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n')
+
+    # write results with just probes with more than one hit
+    fn_ot = os.path.join(d, 'probe2targets_offtargets.tsv')
+    with open(fn_ot, 'w') as fh:
+        fh.write('probe_id\tn_genes\tgene_ids\tgene_names\tcigars\ttranscript_ids\ttranscript_types\n')
+        for qname in ainfos:
+            if len(ainfos[qname]) == 0:
+                continue
+            tnames = [x[0] for x in ainfos[qname]]
+            genes = [x[1] for x in ainfos[qname]]
+            gids = [x[0] for x in genes]
+            gnames = [x[1] for x in genes]
+            ttypes = [x[2] for x in ainfos[qname]]
+            cigars = [x[3] for x in ainfos[qname]]
+            try:
+                assert len(gids) == len(gnames) # sanity check
+            except:
+                print(message(f">1 reference gene IDs might share the same gene name", Mtype.WARN))
+                print(gids)
+                print(gnames)
+
+            # handle cases with none values      
+            gids_s = ','.join([str(x) for x in gids])
+            gnames_s = ','.join('None' if x is None else x for x in gnames)
+            cigar_s = ','.join([str(x) for x in cigars])
+            ttypes_s = ','.join([str(x) for x in ttypes])
+            tnames_s = ','.join([str(x) for x in tnames])
+            # n_genes = # of distinct gene_names
+            if len(set(gnames)) > 1:
+                fh.write(f'{qname}\t{len(set(gnames))}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n')
     return no_hit
 
 def main(args) -> None:
