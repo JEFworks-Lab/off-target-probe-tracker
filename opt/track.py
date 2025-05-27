@@ -198,7 +198,7 @@ def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
                             md_bvec = convert_md2bit(md_tag)
                         if crit_dvec & int(md_bvec, 2) == crit_dvec:
                             ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
-                                        tinfos[tname][2], compress_bvec(final_bvec)))
+                                        tinfos[tname][2], compress_bvec(md_bvec))) # change final_bvec to md_bvec vc final_bvec was referenced before use in this else 5/15/2025
                 else:
                     if 'D' in cigar: # handle deletions separately
                         # NOTE: no need to check num_mismatch == 0 as dels count as mismatches (i.e., nm > 0 guaranteed)
