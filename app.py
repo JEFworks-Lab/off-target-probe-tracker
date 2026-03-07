@@ -1240,44 +1240,62 @@ def render_results() -> None:
     with st.expander("Probe-level predicted off-target detail", expanded=False):
         probes_path = os.path.join(out_dir, "probe2targets_offtargets.tsv")
         if probes_df is not None:
-            # Derive off-target-only CIGAR strings by filtering the parallel
-            # gene_names/cigars lists to positions where gene != probe_gene
-            def _ot_cigars(row):
-                has_pg = "probe_gene" in probes_df.columns
+            # Rebuild off-target gene names, types, and CIGARs from the same
+            # parallel lists so all three columns always have the same count.
+            # Deduplicates by (gene, type, cigar) triple; uses | as delimiter.
+            has_pg = "probe_gene" in probes_df.columns
+
+            def _ot_info(row):
                 probe_gene = str(row["probe_gene"]) if has_pg else (
                     str(row.get("probe_id", "")).split("|")[1]
                     if len(str(row.get("probe_id", "")).split("|")) >= 2
                     else str(row.get("probe_id", ""))
                 )
-                genes  = str(row.get("gene_names", "")).strip("[]").split(",")
-                cigars = str(row.get("cigars",     "")).strip("[]").split(",")
-                ot = list(dict.fromkeys(  # preserve order, deduplicate
-                    c.strip() for g, c in zip(genes, cigars)
-                    if g.strip() and g.strip() != probe_gene and c.strip()
-                ))
-                return ", ".join(ot) if ot else ""
+                genes  = str(row.get("gene_names",       "")).strip("[]").split(",")
+                ttypes = str(row.get("transcript_types",  "")).strip("[]").split(",")
+                cigars = str(row.get("cigars",            "")).strip("[]").split(",")
+                seen = set()
+                ot_genes, ot_types, ot_cigars = [], [], []
+                for g, t, c in zip(genes, ttypes, cigars):
+                    g, t, c = g.strip(), t.strip(), c.strip()
+                    if not g or g == probe_gene:
+                        continue
+                    key = (g, t, c)
+                    if key not in seen:
+                        seen.add(key)
+                        ot_genes.append(g)
+                        ot_types.append(t)
+                        ot_cigars.append(c)
+                return pd.Series({
+                    "_ot_genes":  " | ".join(ot_genes),
+                    "_ot_types":  " | ".join(ot_types),
+                    "_ot_cigars": " | ".join(ot_cigars),
+                })
 
             display_df = probes_df.copy()
-            display_df["offtarget_cigars"] = display_df.apply(_ot_cigars, axis=1)
+            ot_cols = display_df.apply(_ot_info, axis=1)
+            display_df["_ot_genes"]  = ot_cols["_ot_genes"]
+            display_df["_ot_types"]  = ot_cols["_ot_types"]
+            display_df["_ot_cigars"] = ot_cols["_ot_cigars"]
 
-            # Strip brackets from list-valued columns for cleaner display
-            for col in ["offtarget_gene_names", "offtarget_gene_types",
-                        "gene_names", "transcript_types", "gene_ids", "transcript_ids"]:
-                if col in display_df.columns:
-                    display_df[col] = display_df[col].astype(str).str.strip("[]")
+            # Select and rename columns for display
+            col_map = {
+                "probe_id":             "Probe ID",
+                "probe_gene":           "Probe gene",
+                "_ot_genes":            "Off-target genes",
+                "_ot_types":            "Off-target biotypes",
+                "_ot_cigars":           "Off-target CIGARs",
+                "reference_annotation": "Source",
+            }
+            show_cols = [c for c in col_map if c in display_df.columns]
+            display_df = display_df[show_cols].rename(columns=col_map)
 
-            show_cols = [c for c in
-                         ["probe_id", "probe_gene", "offtarget_gene_names",
-                          "offtarget_gene_types", "offtarget_cigars", "reference_annotation"]
-                         if c in display_df.columns]
-            if not show_cols:
-                show_cols = list(display_df.columns)
             total = len(display_df)
             max_rows = st.slider(
                 "Rows to show", min_value=10, max_value=max(total, 10),
                 value=min(50, total), step=10, key="probe_detail_slider",
             )
-            st.dataframe(display_df[show_cols].head(max_rows), use_container_width=True)
+            st.dataframe(display_df.head(max_rows), use_container_width=True)
             st.caption(f"Showing {min(max_rows, total)} of {total} probes.")
         else:
             st.info("probe2targets_offtargets.tsv not found in output directory.")

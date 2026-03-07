@@ -1,6 +1,7 @@
 # OPT — Off-target Probe Tracker
 
-OPT identifies off-target binding of spatial transcriptomics probes (Xenium, MERSCOPE, CosMx, and others) against a reference transcriptome using nucleotide alignment (nucmer or Bowtie2). It flags probes that align to genes other than their intended target and summarizes off-target activity by gene and transcript biotype.
+OPT identifies potential off-target binding of probe sequences against a reference transcriptome using nucleotide alignment (nucmer). The goal of OPT is to help evaluate probe specificity before experiments by detecting probes that may hybridize to unintended transcripts.
+
 
 **Citation:** Hallinan et al., *eLife* 2025. https://elifesciences.org/reviewed-preprints/107070
 
@@ -81,18 +82,22 @@ Then open `http://localhost:8501` in your browser.
 ### App walkthrough
 
 1. **Run Configuration** — set the output directory and number of threads.
-2. **Input Files** — provide paths to your probe FASTA, target transcript FASTA, and annotation GFF/GTF. Use the Browse buttons or type paths directly. An optional gene synonyms CSV can be provided to remap gene names.
+2. **Input Files** — provide paths to your probe FASTA and reference files. Use the Browse buttons or type paths directly.
+   - Select an **annotation format** preset: **GENCODE**, **RefSeq**, **CHESS**, or **Other** (custom schema). The correct GFF/GTF schema is applied automatically.
+   - Select **All (GENCODE + CHESS + RefSeq)** to run against all three reference annotations sequentially and merge the results into a unified off-target table.
+   - An optional **gene synonyms CSV** can be provided to remap gene names that differ between your probe FASTA and the reference (e.g. `WARS` → `WARS1`).
 3. **Analysis Options:**
-   - **Pad length** — number of bases at each probe end where mismatches are tolerated (0 = strict perfect match required in the core region).
-   - **Max mismatches anywhere** — allow up to N mismatches anywhere across the full probe sequence. Can be combined with pad length: when both are set, both conditions must be satisfied.
-   - **Exclude pseudogenes / Protein-coding only** — filter the off-target summary by biotype.
+   - **Pad length** — number of bases at each probe end where mismatches are tolerated (default: off). Used in the original paper for Xenium probes, which are circular and can tolerate terminal mismatches.
+   - **Max mismatches anywhere** — allow up to N mismatches anywhere in the full probe sequence (default: off). Can be combined with pad length: when both are set, both conditions must be satisfied.
 4. Click **Run OPT** to run all three modules (flip → track → stat) and view results in the dashboard below.
 
 The results dashboard shows:
-- Metric cards: genes with off-target binding, probes with off-target binding, protein-coding off-targets
-- Gene-level off-target table (one row per target gene → off-target gene pair) with biotype badges and CIGAR strings, sortable and filterable by biotype
-- Probe-level detail table (expandable)
-- Download buttons for all key output files
+- **Metric cards**: genes with off-target binding, genes with protein-coding off-targets, probes with off-target binding
+- **Gene-level off-target table** — one row per target gene → off-target gene pair, with biotype badges, CIGAR strings, and source annotation. Filterable by biotype and sortable by any column.
+- **Probe-level detail table** (expandable) — one row per probe, showing off-target genes, biotypes, and CIGAR strings (consistent counts, `|`-delimited).
+- **Download buttons** for all key output files.
+
+To load results from a previous run without re-running OPT, set the Output Directory to your previous run folder and click **Load previous results**.
 
 ---
 
@@ -178,42 +183,51 @@ ATCGATCGATCGATCGATCG...
 
 ### Target transcript FASTA
 
-Standard nucleotide FASTA of transcript sequences. We recommend extracting these with [gffread](https://github.com/gpertea/gffread):
+Standard nucleotide FASTA of transcript sequences (.fa or .fasta). We recommend extracting these with [gffread](https://github.com/gpertea/gffread):
 
 ```bash
 gffread -w transcripts.fa -g genome.fa annotation.gff
 ```
 
+> **Note:** The web app requires uncompressed `.fa` or `.fasta` files. The CLI accepts any format that nucmer/Bowtie2 supports.
+
 ### Annotation GFF/GTF
 
-Standard GFF3 or GTF format, optionally gzip-compressed (`.gff.gz`, `.gtf.gz`). GENCODE, RefSeq, and CHESS formats are all supported. For non-standard annotation formats, use `--schema` to specify the correct field names (see below).
+Standard GFF3 or GTF format (.gff, .gff3, or .gtf). GENCODE, RefSeq, and CHESS formats are all supported. Select the matching preset in the web app, or use `--schema` on the command line for non-standard formats.
+
+> **Note:** The web app requires uncompressed annotation files. Gzip-compressed files (`.gz`) are supported via the CLI only.
 
 ### Gene Synonyms CSV (optional)
 
-Two-column CSV mapping old gene names to new names. No header required:
+Two-column CSV mapping probe gene names to annotation gene names. No header required:
 
 ```
 WARS,WARS1
 CARS,CARS1
 ```
 
+Use this when gene names in your probe FASTA differ from those in the reference annotation.
+
 ---
 
 ## GFF/GTF Schema
 
-The `--schema` argument specifies five comma-separated field names used to parse the annotation:
+The `--schema` argument specifies five comma-separated field names used to parse the annotation. Built-in presets for common formats:
 
-```
-transcript,ID,Parent,gene_name,transcript_type
-```
+| Format | Schema string |
+|---|---|
+| GENCODE GFF | `transcript,ID,Parent,gene_name,transcript_type` |
+| RefSeq GFF | `transcript,ID,Parent,gene,gbkey` |
+| CHESS GFF | `transcript,ID,Parent,gene_name,gene_type` |
+| GTF (general) | `transcript,transcript_id,gene_id,gene_name,transcript_type` |
 
-| Position | Description | GENCODE GFF | RefSeq GFF | GTF |
-|---|---|---|---|---|
-| 1 | Feature type (col 3) | `transcript` | `transcript` | `transcript` |
-| 2 | Transcript ID attribute | `ID` | `ID` | `transcript_id` |
-| 3 | Parent (gene) attribute | `Parent` | `Parent` | `gene_id` |
-| 4 | Gene name attribute | `gene_name` | `gene` | `gene_name` |
-| 5 | Transcript type attribute | `transcript_type` | `transcript_biotype` | `transcript_type` |
+| Position | Description |
+|---|---|
+| 1 | Feature type (column 3 of the GFF/GTF) |
+| 2 | Transcript ID attribute |
+| 3 | Parent gene attribute |
+| 4 | Gene name attribute |
+| 5 | Transcript type / biotype attribute |
 
 If you are unsure which schema to use, open a GitHub issue.
 
@@ -236,11 +250,13 @@ If you are unsure which schema to use, open a GitHub issue.
 | `track.unmapped.txt` | Probes with no alignments |
 | `track.no_hit.txt` | Probes that aligned but passed no acceptance threshold |
 
+When running in **All (GENCODE + CHESS + RefSeq)** mode, each annotation runs in its own subdirectory (`gencode/`, `chess/`, `refseq/`) and results are merged into the base output directory with an added `reference_annotation` column.
+
 ---
 
 ## Bundled Reference Data
 
-The `data/` directory includes pre-formatted reference files for human:
+The `data/` directory includes pre-formatted reference files for human (GRCh38):
 
 | Source | Files |
 |---|---|
