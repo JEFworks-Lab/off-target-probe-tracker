@@ -63,7 +63,7 @@ def browse_file(session_key: str, prompt: str = "Select a file") -> None:
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="OPT — Off-target Probe Tracker",
-    page_icon="🧬🧬🧬",
+    page_icon="🧬",
     layout="wide",
 )
 
@@ -185,11 +185,11 @@ def render_header() -> None:
 
         After the analysis completes, the app summarizes results with:
 
-        -  A table listing each **target gene**
-        -  The number of **probes with detected off-targets**
-        -  The corresponding **off-target genes**
-        -  The **gene biotype** of the off-target transcripts
-        -  The **CIGAR alignment patterns** describing how probes aligned to those transcripts
+        -  A table listing each **target gene**, the number of **probes with detected off-targets**, the corresponding **off-target genes**, 
+        the **gene biotype** of the off-target transcripts, the **CIGAR alignment patterns** describing how probes aligned to those transcripts,
+        and the reference annotation.
+
+        - View probe-level predicted off-target details to inspect individual probes and their alignments.
 
         The Streamlit interface highlights the key off-target results so users can quickly identify problematic probes. All original OPT output files are also saved to the specified output directory for further inspection or downstream analysis.
 
@@ -224,7 +224,6 @@ def _path_field(
         )
         st.session_state[state_key] = path
     with col_btn:
-        st.write("")  # vertical alignment spacer
         if st.button("Browse", key=browse_key, use_container_width=True):
             browse_file(state_key, prompt=browse_prompt)
     # Real-time validation feedback
@@ -627,21 +626,27 @@ def build_multi_commands(global_args: dict, module_inputs: dict) -> list:
 
 def _merge_multi_results(completed_runs: list, out_dir: str) -> None:
     """Merge TSV results from all annotation subdirs into out_dir."""
-    probe_dfs   = []
-    summary_dfs = []
+    probe_dfs    = []
+    all_dfs      = []
+    summary_dfs  = []
     probe_ids_union: set = set()
 
     for run in completed_runs:
         sub_dir  = run["out_dir"]
         ref_name = run["name"]
-        p_path = os.path.join(sub_dir, "probe2targets_offtargets.tsv")
-        s_path = os.path.join(sub_dir, "collapsed_summary_offtargets.tsv")
+        p_path   = os.path.join(sub_dir, "probe2targets_offtargets.tsv")
+        a_path   = os.path.join(sub_dir, "probe2targets.tsv")
+        s_path   = os.path.join(sub_dir, "collapsed_summary_offtargets.tsv")
         if os.path.exists(p_path):
             df = pd.read_csv(p_path, sep="\t")
             df["reference_annotation"] = ref_name
             probe_dfs.append(df)
             if "probe_id" in df.columns:
                 probe_ids_union.update(df["probe_id"].astype(str))
+        if os.path.exists(a_path):
+            df = pd.read_csv(a_path, sep="\t")
+            df["reference_annotation"] = ref_name
+            all_dfs.append(df)
         if os.path.exists(s_path):
             df = pd.read_csv(s_path, sep="\t")
             df["reference_annotation"] = ref_name
@@ -650,6 +655,9 @@ def _merge_multi_results(completed_runs: list, out_dir: str) -> None:
     if probe_dfs:
         pd.concat(probe_dfs, ignore_index=True).to_csv(
             os.path.join(out_dir, "probe2targets_offtargets.tsv"), sep="\t", index=False)
+    if all_dfs:
+        pd.concat(all_dfs, ignore_index=True).to_csv(
+            os.path.join(out_dir, "probe2targets.tsv"), sep="\t", index=False)
     if summary_dfs:
         merged = pd.concat(summary_dfs, ignore_index=True)
         if "target_gene" in merged.columns:
@@ -896,12 +904,14 @@ def _render_multi_running_status() -> None:
 
 # ── Results helpers ───────────────────────────────────────────────────────────
 def _load_offtarget_data(out_dir: str):
-    """Returns (summary_df, probes_df). Either may be None if file is missing."""
-    summary_path = os.path.join(out_dir, "collapsed_summary_offtargets.tsv")
-    probes_path  = os.path.join(out_dir, "probe2targets_offtargets.tsv")
-    summary_df = pd.read_csv(summary_path, sep="\t") if os.path.exists(summary_path) else None
-    probes_df  = pd.read_csv(probes_path,  sep="\t") if os.path.exists(probes_path)  else None
-    return summary_df, probes_df
+    """Returns (summary_df, probes_df, all_probes_df). Any may be None if missing."""
+    summary_path   = os.path.join(out_dir, "collapsed_summary_offtargets.tsv")
+    probes_path    = os.path.join(out_dir, "probe2targets_offtargets.tsv")
+    all_path       = os.path.join(out_dir, "probe2targets.tsv")
+    summary_df     = pd.read_csv(summary_path, sep="\t") if os.path.exists(summary_path) else None
+    probes_df      = pd.read_csv(probes_path,  sep="\t") if os.path.exists(probes_path)  else None
+    all_probes_df  = pd.read_csv(all_path,     sep="\t") if os.path.exists(all_path)     else None
+    return summary_df, probes_df, all_probes_df
 
 
 def _count_file_lines(path: str) -> int:
@@ -911,7 +921,7 @@ def _count_file_lines(path: str) -> int:
         return sum(1 for ln in fh if ln.strip())
 
 
-def _build_ot_rows(summary_df, probes_df) -> list:
+def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
     """Build one dict per (target_gene, off_target_gene) pair.
 
     Parses gene_names / transcript_types / cigars as parallel lists — columns
@@ -942,6 +952,34 @@ def _build_ot_rows(summary_df, probes_df) -> list:
                 gname = gname.strip()
                 ttype = ttype.strip()
                 cig   = cig.strip()
+                if not gname or gname == probe_gene:
+                    continue
+                ot_entry = agg.setdefault(probe_gene, {}).setdefault(
+                    gname, {"biotypes": set(), "cigars": set(), "probe_ids": set(),
+                            "refs": set(), "ref_biotypes": {}}
+                )
+                ot_entry["biotypes"].add(ttype)
+                ot_entry["cigars"].add(cig)
+                ot_entry["probe_ids"].add(probe_id)
+                if ref_name:
+                    ot_entry["refs"].add(ref_name)
+                    ot_entry["ref_biotypes"].setdefault(ref_name, set()).add(ttype)
+
+    # Also scan probe2targets.tsv (all probes) for exclusive off-target hits:
+    # probes that align ONLY to a non-target gene (n_genes=1, gene != probe_gene).
+    # These don't appear in probe2targets_offtargets.tsv but are flagged in the summary.
+    if all_probes_df is not None:
+        has_ref_col_all = "reference_annotation" in all_probes_df.columns
+        for _, row in all_probes_df.iterrows():
+            parts = str(row.get("probe_id", "")).split("|")
+            probe_gene = parts[1] if len(parts) >= 2 else str(row.get("probe_id", ""))
+            probe_id   = str(row.get("probe_id", ""))
+            ref_name   = str(row.get("reference_annotation", "")).strip() if has_ref_col_all else ""
+            gene_names = str(row.get("gene_names",       "")).strip("[]").split(",")
+            ttypes     = str(row.get("transcript_types", "")).strip("[]").split(",")
+            cigars_l   = str(row.get("cigars",           "")).strip("[]").split(",")
+            for gname, ttype, cig in zip(gene_names, ttypes, cigars_l):
+                gname = gname.strip(); ttype = ttype.strip(); cig = cig.strip()
                 if not gname or gname == probe_gene:
                     continue
                 ot_entry = agg.setdefault(probe_gene, {}).setdefault(
@@ -1016,7 +1054,7 @@ def render_results() -> None:
         st.error("OPT did not complete successfully. Check the log in 'Run details' above.")
         return
 
-    summary_df, probes_df = _load_offtarget_data(out_dir)
+    summary_df, probes_df, all_probes_df = _load_offtarget_data(out_dir)
     if summary_df is None:
         st.info("No off-target summary file found in the output directory.")
         return
@@ -1031,16 +1069,18 @@ def render_results() -> None:
             with open(preset_file) as _f:
                 annotation_preset = _f.read().strip()
             st.session_state["run_annotation_preset"] = annotation_preset
-    if (probes_df is not None
-            and "reference_annotation" not in probes_df.columns
-            and annotation_preset in _REF_COLORS):
-        probes_df = probes_df.copy()
-        probes_df["reference_annotation"] = annotation_preset
+    if annotation_preset in _REF_COLORS:
+        if probes_df is not None and "reference_annotation" not in probes_df.columns:
+            probes_df = probes_df.copy()
+            probes_df["reference_annotation"] = annotation_preset
+        if all_probes_df is not None and "reference_annotation" not in all_probes_df.columns:
+            all_probes_df = all_probes_df.copy()
+            all_probes_df["reference_annotation"] = annotation_preset
 
     st.subheader("Predicted Off-Target Results")
 
     # Build the unified off-target row list (one entry per target→ot_gene pair)
-    ot_rows = _build_ot_rows(summary_df, probes_df)
+    ot_rows = _build_ot_rows(summary_df, probes_df, all_probes_df)
 
     # ── Metric cards ──────────────────────────────────────────────────────────
     n_ot_genes  = len(summary_df)
@@ -1252,7 +1292,7 @@ def render_results() -> None:
     st.divider()
 
     # ── Output file descriptions ───────────────────────────────────────────────
-    st.markdown("**Output files**")
+    st.subheader("Output File Descriptions")
     st.caption(f"All output files are saved to: `{out_dir}`")
     st.markdown(
         """
