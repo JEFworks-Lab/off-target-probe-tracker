@@ -38,14 +38,18 @@ def message(s, mtype) -> str:
 
 # check if gff or gtf
 def check_annotation_ext(fn) -> str:
-    file_ext = Path(fn).suffix.lower()
+    # Strip .gz to get the real extension (e.g. annotation.gff.gz -> .gff)
+    name = Path(fn).name.lower()
+    if name.endswith('.gz'):
+        name = name[:-3]
+    file_ext = Path(name).suffix
     att_sep = None
     if file_ext == '.gtf':
         att_sep =  ' '
-    elif file_ext == '.gff':
+    elif file_ext in ('.gff', '.gff3'):
         att_sep =  '='
     else:
-        print(message(f"recognized annotation format; must either be gff or gtf", Mtype.ERROR))
+        print(message(f"unrecognized annotation format '{file_ext}'; must be .gff, .gff3, or .gtf (optionally .gz compressed)", Mtype.ERROR))
         sys.exit(-1)
     return att_sep
 
@@ -127,34 +131,33 @@ def att2dict(s, sep):
 def build_tinfos(fn, att_sep, schema, keep_dot) -> dict:
     df = pd.read_csv(fn, sep='\t', header=None, comment='#')
     df.columns = ['ctg', 'src', 'feat', 'start', 'end', 'score', 'strand', 'frame', 'att']
+    # Filter to transcript rows before looping — avoids processing exon/CDS/gene rows
+    # (typically 5-10x more rows than transcript rows in a GFF file)
+    transcript_df = df[df['feat'] == schema[0]]
     tinfos = dict()
-    ctr = 0
     missing_gene_names = 0
-    for _, row in df.iterrows():
-        if row['feat'] == schema[0]:
-            ctr += 1
-            att_d = att2dict(row['att'], att_sep)
-            # if schema[1] not in att_d or schema[2] not in att_d or schema[3] not in att_d or schema[4] not in att_d: 
-            if schema[1] not in att_d or schema[2] not in att_d: 
-                print(message(f"Invalid schema. Expected schema: {schema}. Actual schema: {att_d.keys()}. Change expected schema to correctly locate the necassary information", Mtype.ERROR))
-                return None # terminate
-            tid = att_d[schema[1]]
-            gid = att_d[schema[2]] if keep_dot else att_d[schema[2]].split('.')[0]
-            # if you cant get gene name then make None and print out total
-            if schema[3] in att_d:
-                gname = att_d[schema[3]]
-            else:
-                gname = None
-                missing_gene_names += 1
-            if gname:
-                temp = gname.split(',')
-                if len(temp) > 1:
-                    temp = [x.strip() for x in temp]
-                    gname = ';'.join(temp)
-            ttype = att_d.get(schema[4], None)
-            tinfos[tid] = (gid, gname, ttype)
+    for row in transcript_df.itertuples(index=False):
+        att_d = att2dict(row.att, att_sep)
+        if schema[1] not in att_d or schema[2] not in att_d:
+            print(message(f"Invalid schema. Expected schema: {schema}. Actual schema: {att_d.keys()}. Change expected schema to correctly locate the necassary information", Mtype.ERROR))
+            return None # terminate
+        tid = att_d[schema[1]]
+        gid = att_d[schema[2]] if keep_dot else att_d[schema[2]].split('.')[0]
+        # if you cant get gene name then make None and print out total
+        if schema[3] in att_d:
+            gname = att_d[schema[3]]
+        else:
+            gname = None
+            missing_gene_names += 1
+        if gname:
+            temp = gname.split(',')
+            if len(temp) > 1:
+                temp = [x.strip() for x in temp]
+                gname = ';'.join(temp)
+        ttype = att_d.get(schema[4], None)
+        tinfos[tid] = (gid, gname, ttype)
     print(message(f"missing {missing_gene_names} gene names. If this number is high, the schema may need to be fixed", Mtype.INFO))
-    print(message(f"loaded {ctr} transcripts", Mtype.INFO))
+    print(message(f"loaded {len(tinfos)} transcripts", Mtype.INFO))
 
     return tinfos
 
@@ -166,12 +169,10 @@ def write_tinfos(fn, tinfos) -> None:
             fh.write(f'{x},{y},{z},{ttype}\n')
 
 def load_tinfos(fn) -> dict:
-    tinfos = dict()
     df = pd.read_csv(fn)
-    with open(fn, 'r') as fh:
-        for _, row in df.iterrows():
-            tinfos[row['transcript_id']] = (row['gene_id'], row['gene_name'], row['transcript_type'])
-    return tinfos
+    # Build dict in one pass using zip — avoids opening the file twice and iterrows overhead
+    return dict(zip(df['transcript_id'],
+                    zip(df['gene_id'], df['gene_name'], df['transcript_type'])))
 
 def write_lst2file(l, fn) -> None:
     with open(fn, 'w') as fh:

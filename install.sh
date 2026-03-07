@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "=== OPT + Streamlit GUI Setup ==="
+echo ""
+
+# Detect platform
+OS="$(uname -s)"
+
+# Step 1: Create conda environment
+echo "[1/4] Creating conda environment 'opt' from environment.yml..."
+conda env create -f "${REPO_DIR}/environment.yml" --force
+echo "      Done."
+
+# Step 2: Activate environment
+echo "[2/4] Activating environment..."
+eval "$(conda shell.bash hook)"
+conda activate opt
+
+# Step 3: Install mummer4 (platform-dependent)
+echo "[3/4] Installing mummer4..."
+if [ "$OS" = "Linux" ]; then
+    conda install -n opt -c bioconda "mummer4>=4.0.1" -y
+    echo "      mummer4 installed via conda."
+elif [ "$OS" = "Darwin" ]; then
+    echo "      macOS detected — mummer4 must be installed via Homebrew (system-wide)."
+    echo "      Ensure Homebrew is installed: https://brew.sh"
+    brew install autoconf automake libtool md5sha1sum || true
+    gem install yaggo || true
+    brew install mummer
+    echo "      mummer installed via Homebrew."
+else
+    echo "      WARNING: Unsupported OS '$OS'. Install mummer4 manually."
+    echo "      See: https://github.com/mummer4/mummer/blob/master/INSTALL.md"
+fi
+
+# Step 4: Install the opt Python package
+echo "[4/4] Installing the opt Python package..."
+pip install "${REPO_DIR}"
+echo "      Done."
+
+echo ""
+echo "=== Setup complete ==="
+echo ""
+echo "To launch the Streamlit GUI:"
+echo ""
+echo "  conda activate opt"
+echo "  streamlit run ${REPO_DIR}/app.py"
+echo ""
+echo "To host on a shared lab server (accessible from any browser on the network):"
+echo ""
+echo "  conda activate opt"
+echo "  streamlit run ${REPO_DIR}/app.py --server.port 8501 --server.address 0.0.0.0"
+echo ""
+echo "To raise the file upload size limit (for large reference files):"
+echo "  Add the following to ${REPO_DIR}/.streamlit/config.toml"
+echo "  [server]"
+echo "  maxUploadSize = 1000"
+echo ""

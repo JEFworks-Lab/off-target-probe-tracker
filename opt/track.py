@@ -1,38 +1,40 @@
 from opt.commons import *
 
 def convert_md2bit(s):
+    # Use list + join instead of repeated string concatenation (O(n) vs O(n²))
+    parts = []
     running = ""
-    bit_s = ""
     for c in s:
         if c.isdigit():
             running += c
         else:
-            if len(running) > 0:
-                bit_s += '1' * int(running)
-            bit_s += '0'
+            if running:
+                parts.append('1' * int(running))
+            parts.append('0')
             running = ""
-    if len(running) > 0:
-        bit_s += '1' * int(running)
-    return bit_s
+    if running:
+        parts.append('1' * int(running))
+    return ''.join(parts)
 
 def convert_md2bit_nucmer(s, tstart):
+    parts = []
     running = ""
-    bit_s = ""
     for c in s:
         if c.isdigit():
             running += c
         else:
-            if len(running) > 0:
-                bit_s += '1' * int(running)
-            bit_s += '0'
+            if running:
+                parts.append('1' * int(running))
+            parts.append('0')
             running = ""
-    if len(running) > 0:
-        bit_s += '1' * (int(running) - tstart)
-    return bit_s
+    if running:
+        parts.append('1' * (int(running) - tstart))
+    return ''.join(parts)
 
 def convert_md2bit_del(s):
+    parts = []
+    pos = 0  # tracks current output length to record mismatch positions
     running = ""
-    bit_s = ""
     ignore = False
     mismatch_info = []
     for c in s:
@@ -42,24 +44,30 @@ def convert_md2bit_del(s):
         else:
             if ignore: continue
             if c == '^':
-                if len(running) > 0:
-                    bit_s += '1' * int(running)
+                if running:
+                    n = int(running)
+                    parts.append('1' * n)
+                    pos += n
                 running = ""
                 ignore = True
                 continue
             else:
-                if len(running) > 0:
-                    bit_s += '1' * int(running)
-                mismatch_info.append(len(bit_s))
-                bit_s += '0'
+                if running:
+                    n = int(running)
+                    parts.append('1' * n)
+                    pos += n
+                mismatch_info.append(pos)
+                parts.append('0')
+                pos += 1
                 running = ""
-    if len(running) > 0:
-        bit_s += '1' * int(running)
-    return bit_s, mismatch_info
+    if running:
+        parts.append('1' * int(running))
+    return ''.join(parts), mismatch_info
 
 def convert_md2bit_nucmer_del(s, tstart):
+    parts = []
+    pos = 0
     running = ""
-    bit_s = ""
     ignore = False
     mismatch_info = []
     for c in s:
@@ -69,20 +77,25 @@ def convert_md2bit_nucmer_del(s, tstart):
         else:
             if ignore: continue
             if c == '^':
-                if len(running) > 0:
-                    bit_s += '1' * int(running)
+                if running:
+                    n = int(running)
+                    parts.append('1' * n)
+                    pos += n
                 running = ""
                 ignore = True
                 continue
             else:
-                if len(running) > 0:
-                    bit_s += '1' * int(running)
-                mismatch_info.append(len(bit_s))
-                bit_s += '0'
+                if running:
+                    n = int(running)
+                    parts.append('1' * n)
+                    pos += n
+                mismatch_info.append(pos)
+                parts.append('0')
+                pos += 1
                 running = ""
-    if len(running) > 0:
-        bit_s += '1' * (int(running) - tstart)
-    return bit_s, mismatch_info
+    if running:
+        parts.append('1' * (int(running) - tstart))
+    return ''.join(parts), mismatch_info
 
 def convert_cigar2bit(tup):
     bit_s = ""
@@ -135,14 +148,8 @@ def convert_cigar2bit_del(tup, n, mismatch_info):
     return bit_s_lst
 
 def bitwise_and(s1, s2):
-    out = ""
     assert len(s1) == len(s2)
-    for i in range(len(s1)):
-        if s1[i] == '1' and s2[i] == '1':
-            out += '1'
-        else:
-            out += '0'
-    return out
+    return ''.join('1' if a == '1' and b == '1' else '0' for a, b in zip(s1, s2))
 
 def char2sym(char):
     if char == '0':
@@ -165,6 +172,10 @@ def compress_bvec(bvec):
 
 def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
     ainfos = dict()
+    # Cache per-probe length and critical bit vector — each probe can appear in thousands
+    # of alignment records, so recomputing these every time is wasteful
+    qlen_cache = {}
+    crit_cache = {}
     with pysam.AlignmentFile(fn, 'rb') as fh:
         for brec in fh:
             qname = brec.query_name
@@ -175,10 +186,13 @@ def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
                 continue
             else:
                 tname = brec.reference_name
-                qlen = len(qfa[qname].seq)
-                crit_bvec = "0" * pad + "1" * (qlen - 2 * pad) + "0" * pad
-                assert len(crit_bvec) == qlen # sanity check
-                crit_dvec = int(crit_bvec, 2)
+                if qname not in qlen_cache:
+                    qlen_cache[qname] = len(qfa[qname].seq)
+                    crit_bvec = "0" * pad + "1" * (qlen_cache[qname] - 2 * pad) + "0" * pad
+                    assert len(crit_bvec) == qlen_cache[qname] # sanity check
+                    crit_cache[qname] = int(crit_bvec, 2)
+                qlen = qlen_cache[qname]
+                crit_dvec = crit_cache[qname]
                 if qname not in ainfos:
                     ainfos[qname] = set() # empty if no brec is passing
                     # NOTE: this used to be a set; explains the discrepancy in the output
@@ -266,8 +280,9 @@ def load_mums(fn) -> dict:
                     mums[qname].append((temp[0], int(temp[1]), int(temp[2]), int(temp[3])))
     return mums
 
-def check_lft_and_rgt(mrec, qname, qry_fa, tgt_fa, max_nm):
-    qlen = len(qry_fa[qname].seq)
+def check_lft_and_rgt(mrec, qseq, qlen, tgt_fa, max_nm):
+    # Accepts pre-fetched qseq and qlen — caller caches these per probe to avoid
+    # repeated pyfastx index lookups when the same probe has multiple alignment hits
     tname, tst, qst, mlen = mrec
     if mlen == 40:
         return (True, '1' * mlen, 0)
@@ -277,7 +292,6 @@ def check_lft_and_rgt(mrec, qname, qry_fa, tgt_fa, max_nm):
     ten = tst + mlen
     lft_qos = qst
     rgt_qos = qlen - qen
-    qseq = qry_fa[qname].seq
     tseq = tgt_fa[tname].seq
     lft_tseq = tseq[tst - lft_qos:tst]
     rgt_tseq = tseq[ten:ten + rgt_qos]
@@ -287,55 +301,63 @@ def check_lft_and_rgt(mrec, qname, qry_fa, tgt_fa, max_nm):
         return (False, None, -1)
     if len(rgt_tseq) != rgt_qos: # tseq runs out at 3'
         return (False, None, -1)
-    lft_mvec = ""
-    lft_nm = 0
-    for i in range(lft_qos):
-        if lft_tseq[i] == lft_qseq[i]:
-            lft_mvec += "1"
-        else:
-            lft_mvec += "0"
-            lft_nm += 1
-    rgt_mvec = ""
-    rgt_nm = 0
-    for i in range(rgt_qos):
-        if rgt_tseq[i] == rgt_qseq[i]:
-            rgt_mvec += "1"
-        else:
-            rgt_mvec += "0"
-            rgt_nm += 1
-    mvec = lft_mvec + ('1' * mlen) + rgt_mvec
-    assert len(mvec) ==  qlen # sanity check
+    # Build match vectors with list comprehension + join instead of per-char concatenation
+    lft_bits = ['1' if lft_tseq[i] == lft_qseq[i] else '0' for i in range(lft_qos)]
+    lft_nm = lft_bits.count('0')
+    rgt_bits = ['1' if rgt_tseq[i] == rgt_qseq[i] else '0' for i in range(rgt_qos)]
+    rgt_nm = rgt_bits.count('0')
+    mvec = ''.join(lft_bits) + ('1' * mlen) + ''.join(rgt_bits)
+    assert len(mvec) == qlen # sanity check
     nm = lft_nm + rgt_nm
     return (nm <= max_nm, mvec, nm)
 
 def track_target_one_mismatch(fn, qfa, tfa, tinfos) -> dict:
     mums = load_mums(fn)
     ainfos = dict()
-    for qname in mums:
+    for qname, mrecs in mums.items():
         ainfos[qname] = set()
-        for mrec in mums[qname]:
+        # Pre-fetch probe sequence once per probe — each probe can appear in many
+        # alignment records (mrecs), so caching avoids repeated pyfastx index hits
+        q = qfa[qname]
+        qseq = q.seq
+        qlen = len(qseq)
+        for mrec in mrecs:
             tname = mrec[0]
-            is_pass, mvec, _ = check_lft_and_rgt(mrec, qname, qfa, tfa, 1)
+            is_pass, mvec, _ = check_lft_and_rgt(mrec, qseq, qlen, tfa, 1)
             if is_pass:
                 ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
                                             tinfos[tname][2], compress_bvec(mvec)))
     return ainfos
     
+def _summarize_types(types):
+    """Return the most informative type label for a set of transcript types for one gene."""
+    if 'protein_coding' in types or 'mRNA' in types:
+        return 'protein_coding'
+    return ';'.join(sorted(types))
+
+
 def write_results(ainfos, d) -> list:
-    fn = os.path.join(d, 'probe2targets.tsv')
+    # Single pass over ainfos — build both output files simultaneously to avoid
+    # iterating the dict twice and extracting fields twice per probe
+    header    = 'probe_id\tn_genes\tgene_ids\tgene_names\tcigars\ttranscript_ids\ttranscript_types\n'
+    header_ot = ('probe_id\tn_genes\tgene_ids\tgene_names\tcigars\ttranscript_ids\ttranscript_types'
+                 '\tprobe_gene\tofftarget_gene_names\tofftarget_gene_types\tconcern_level\n')
+    fn    = os.path.join(d, 'probe2targets.tsv')
+    fn_ot = os.path.join(d, 'probe2targets_offtargets.tsv')
     no_hit = []
-    with open(fn, 'w') as fh:
-        fh.write('probe_id\tn_genes\tgene_ids\tgene_names\tcigars\ttranscript_ids\ttranscript_types\n')
-        for qname in ainfos:
-            if len(ainfos[qname]) == 0:
+    with open(fn, 'w') as fh, open(fn_ot, 'w') as fh_ot:
+        fh.write(header)
+        fh_ot.write(header_ot)
+        for qname, hits in ainfos.items():
+            if len(hits) == 0:
                 no_hit.append(qname)
                 continue
-            tnames = [x[0] for x in ainfos[qname]]
-            genes = [x[1] for x in ainfos[qname]]
-            gids = [x[0] for x in genes]
+            tnames = [x[0] for x in hits]
+            genes  = [x[1] for x in hits]
+            gids   = [x[0] for x in genes]
             gnames = [x[1] for x in genes]
-            ttypes = [x[2] for x in ainfos[qname]]
-            cigars = [x[3] for x in ainfos[qname]]
+            ttypes = [x[2] for x in hits]
+            cigars = [x[3] for x in hits]
             try:
                 assert len(gids) == len(gnames) # sanity check
             except:
@@ -343,44 +365,48 @@ def write_results(ainfos, d) -> list:
                 print(gids)
                 print(gnames)
 
-            # handle cases with none values      
-            gids_s = ','.join([str(x) for x in gids])
+            gids_s   = ','.join(str(x) for x in gids)
             gnames_s = ','.join('None' if x is None else str(x) for x in gnames)
-            cigar_s = ','.join([str(x) for x in cigars])
-            ttypes_s = ','.join([str(x) for x in ttypes])
-            tnames_s = ','.join([str(x) for x in tnames])
-            # n_genes = # of distinct gene_names
-            fh.write(f'{qname}\t{len(set(gnames))}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n')
+            cigar_s  = ','.join(str(x) for x in cigars)
+            ttypes_s = ','.join(str(x) for x in ttypes)
+            tnames_s = ','.join(str(x) for x in tnames)
+            n_genes  = len(set(gnames))
+            row = f'{qname}\t{n_genes}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n'
+            fh.write(row)
+            if n_genes > 1:
+                # Derive probe's intended gene from its ID (format: gid|gname|accession)
+                parts = qname.split('|')
+                probe_gene = parts[1] if len(parts) >= 2 else qname
 
-    # write results with just probes with more than one hit
-    fn_ot = os.path.join(d, 'probe2targets_offtargets.tsv')
-    with open(fn_ot, 'w') as fh:
-        fh.write('probe_id\tn_genes\tgene_ids\tgene_names\tcigars\ttranscript_ids\ttranscript_types\n')
-        for qname in ainfos:
-            if len(ainfos[qname]) == 0:
-                continue
-            tnames = [x[0] for x in ainfos[qname]]
-            genes = [x[1] for x in ainfos[qname]]
-            gids = [x[0] for x in genes]
-            gnames = [x[1] for x in genes]
-            ttypes = [x[2] for x in ainfos[qname]]
-            cigars = [x[3] for x in ainfos[qname]]
-            try:
-                assert len(gids) == len(gnames) # sanity check
-            except:
-                print(message(f">1 reference gene IDs might share the same gene name", Mtype.WARN))
-                print(gids)
-                print(gnames)
+                # Build gene_name → set of transcript types
+                gene_to_types = {}
+                for gname_i, ttype_i in zip(gnames, ttypes):
+                    gene_to_types.setdefault(gname_i, set()).add(str(ttype_i))
 
-            # handle cases with none values      
-            gids_s = ','.join([str(x) for x in gids])
-            gnames_s = ','.join('None' if x is None else str(x) for x in gnames)
-            cigar_s = ','.join([str(x) for x in cigars])
-            ttypes_s = ','.join([str(x) for x in ttypes])
-            tnames_s = ','.join([str(x) for x in tnames])
-            # n_genes = # of distinct gene_names
-            if len(set(gnames)) > 1:
-                fh.write(f'{qname}\t{len(set(gnames))}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]\t[{tnames_s}]\t[{ttypes_s}]\n')
+                # Unique off-target gene names (not the probe's target), order preserved
+                seen_ot = set()
+                ot_genes = []
+                for gname_i in gnames:
+                    if gname_i != probe_gene and gname_i not in seen_ot:
+                        seen_ot.add(gname_i)
+                        ot_genes.append(gname_i)
+
+                ot_gene_names_s = ','.join(str(g) for g in ot_genes)
+                ot_gene_types_s = ','.join(_summarize_types(gene_to_types[g]) for g in ot_genes)
+
+                # Concern level based on off-target gene types
+                ot_type_sets = [gene_to_types[g] for g in ot_genes]
+                if any('protein_coding' in ts or 'mRNA' in ts for ts in ot_type_sets):
+                    concern = 'high'
+                elif any(not any('pseudogene' in t for t in ts) for ts in ot_type_sets):
+                    concern = 'medium'
+                else:
+                    concern = 'low'
+
+                ot_row = (f'{qname}\t{n_genes}\t[{gids_s}]\t[{gnames_s}]\t[{cigar_s}]'
+                          f'\t[{tnames_s}]\t[{ttypes_s}]'
+                          f'\t{probe_gene}\t[{ot_gene_names_s}]\t[{ot_gene_types_s}]\t{concern}\n')
+                fh_ot.write(ot_row)
     return no_hit
 
 def main(args) -> None:
