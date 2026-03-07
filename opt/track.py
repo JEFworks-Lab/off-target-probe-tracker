@@ -170,7 +170,7 @@ def compress_bvec(bvec):
     out.append(f"{char2sym(curr_char)}{ctr}")
     return ''.join(out)
 
-def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
+def track_target_pad(fn, qfa, pad, tinfos, is_nucmer, max_mismatches=-1) -> dict:
     ainfos = dict()
     # Cache per-probe length and critical bit vector — each probe can appear in thousands
     # of alignment records, so recomputing these every time is wasteful
@@ -210,9 +210,14 @@ def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
                             md_bvec = convert_md2bit_nucmer(md_tag, tstart)
                         else:
                             md_bvec = convert_md2bit(md_tag)
-                        if crit_dvec & int(md_bvec, 2) == crit_dvec:
+                        crit_pass = crit_dvec & int(md_bvec, 2) == crit_dvec
+                        if max_mismatches >= 0:
+                            accept = num_mismatch <= max_mismatches and (pad == 0 or crit_pass)
+                        else:
+                            accept = crit_pass
+                        if accept:
                             ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
-                                        tinfos[tname][2], compress_bvec(md_bvec))) # change final_bvec to md_bvec vc final_bvec was referenced before use in this else 5/15/2025
+                                        tinfos[tname][2], compress_bvec(md_bvec)))
                 else:
                     if 'D' in cigar: # handle deletions separately
                         # NOTE: no need to check num_mismatch == 0 as dels count as mismatches (i.e., nm > 0 guaranteed)
@@ -228,8 +233,13 @@ def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
                                 final_bvec = bvec
                                 hit = True
                                 break
-                        if hit:
-                            assert final_bvec is not None
+                        if max_mismatches >= 0:
+                            accept = num_mismatch <= max_mismatches and (pad == 0 or hit)
+                        else:
+                            accept = hit
+                        if accept:
+                            if final_bvec is None:
+                                final_bvec = cigar_bvecs[0] if cigar_bvecs else '1' * qlen
                             ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
                                         tinfos[tname][2], compress_bvec(final_bvec)))
                     else:
@@ -260,7 +270,14 @@ def track_target_pad(fn, qfa, pad, tinfos, is_nucmer) -> dict:
                                 temp = '0' * clip_info[0] + md_bvec + '0' * clip_info[1]
                                 assert len(temp) == len(cigar_bvec) # sanity check
                                 final_bvec = bitwise_and(cigar_bvec, temp)
-                        if crit_dvec & int(final_bvec, 2) == crit_dvec:
+                        crit_pass = crit_dvec & int(final_bvec, 2) == crit_dvec
+                        if max_mismatches >= 0:
+                            # Use bit-vector 0-count: NM tag excludes soft-clips/insertions
+                            effective_nm = final_bvec.count('0')
+                            accept = effective_nm <= max_mismatches and (pad == 0 or crit_pass)
+                        else:
+                            accept = crit_pass
+                        if accept:
                             ainfos[qname].add((tname, (tinfos[tname][0], tinfos[tname][1]), \
                                             tinfos[tname][2], compress_bvec(final_bvec)))
     return ainfos
@@ -443,7 +460,8 @@ def main(args) -> None:
 
     # print(message(f"detecting potential off-target probe activities", Mtype.INFO))
     if not args.one_mismatch:
-        ainfos = track_target_pad(afn, qfa, args.pad_length, tinfos, not args.bowtie2)
+        ainfos = track_target_pad(afn, qfa, args.pad_length, tinfos, not args.bowtie2,
+                                  getattr(args, 'max_mismatches', -1))
         unaligned = get_unaligned(qfa, ainfos)
     else:
         tfa = pyfastx.Fasta(args.target)

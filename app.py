@@ -237,6 +237,26 @@ def render_all_inputs() -> tuple:
         excl_pseudo = st.checkbox("Exclude pseudogenes (--exclude-pseudo)", value=False)
         pc_only     = st.checkbox("Protein-coding only (--pc-only)", value=False)
 
+    col_mm_en, col_mm_val = st.columns([1, 2])
+    with col_mm_en:
+        use_mm = st.checkbox(
+            "Max mismatches anywhere (-mm)", value=False,
+            help=(
+                "Allow up to N mismatches anywhere in the full probe sequence. "
+                "Can be combined with Pad length: when both are set, both conditions "
+                "must be satisfied (NM ≤ N AND mismatches confined to terminal pad bases)."
+            ),
+        )
+    with col_mm_val:
+        mm_val = st.number_input(
+            "Max mismatches value",
+            min_value=0, max_value=10, value=1, step=1,
+            disabled=not use_mm,
+            help="Maximum number of mismatches allowed across the full probe sequence.",
+            label_visibility="collapsed",
+        )
+    max_mismatches = int(mm_val) if use_mm else -1
+
     with st.expander("Advanced Options", expanded=False):
         bam = st.checkbox(
             "Store alignments as BAM (--bam)", value=False,
@@ -287,13 +307,14 @@ def render_all_inputs() -> tuple:
         "schema_fields": schema_fields,
     }
     module_inputs = {
-        "query":          query_path,
-        "target":         target,
-        "annotation":     annotation,
-        "syn_file":       syn_file,
-        "pad_length":     pad_length,
-        "exclude_pseudo": excl_pseudo,
-        "pc_only":        pc_only,
+        "query":           query_path,
+        "target":          target,
+        "annotation":      annotation,
+        "syn_file":        syn_file,
+        "pad_length":      pad_length,
+        "max_mismatches":  max_mismatches,
+        "exclude_pseudo":  excl_pseudo,
+        "pc_only":         pc_only,
     }
     return global_args, module_inputs
 
@@ -318,6 +339,9 @@ def build_command(global_args: dict, module_inputs: dict) -> list:
     cmd += ["-t", module_inputs["target"].strip()]
     cmd += ["-a", module_inputs["annotation"].strip()]
     cmd += ["-pl", str(module_inputs["pad_length"])]
+
+    if module_inputs.get("max_mismatches", -1) >= 0:
+        cmd += ["-mm", str(module_inputs["max_mismatches"])]
 
     if module_inputs.get("exclude_pseudo"):
         cmd.append("--exclude-pseudo")
@@ -692,7 +716,7 @@ def render_results() -> None:
         if probes_df is not None:
             show_cols = [c for c in
                          ["probe_id", "probe_gene", "offtarget_gene_names",
-                          "offtarget_gene_types", "concern_level"]
+                          "offtarget_gene_types", "cigars"]
                          if c in probes_df.columns]
             if not show_cols:
                 show_cols = list(probes_df.columns)

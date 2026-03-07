@@ -1,217 +1,264 @@
-# `opt`: <ins>O</ins>ff-target <ins>P</ins>robe <ins>T</ins>racker
+# OPT — Off-target Probe Tracker
 
-`opt` is a simple python program that aligns probe sequences to transcript sequences to detect potential off-target probe activity.
+OPT identifies off-target binding of spatial transcriptomics probes (Xenium, MERSCOPE, CosMx, and others) against a reference transcriptome using nucleotide alignment (nucmer or Bowtie2). It flags probes that align to genes other than their intended target and summarizes off-target activity by gene and transcript biotype.
 
+**Citation:** Hallinan et al., *eLife* 2025. https://elifesciences.org/reviewed-preprints/107070
+
+
+## Quick Start
+
+OPT can be used via a **point-and-click web interface** (recommended) or directly from the **command line**.
+
+---
 
 ## Installation
 
-`opt` has been tested on Linux and Mac systems.
+OPT has been tested on Linux and macOS. The fastest way to install is with the provided script:
 
-
-### Linux Installation
-
-You will need to install the following packages and this repo. We recommend that the users install them in a new conda environment as follows:
-
+```bash
+git clone https://github.com/JEFworks-Lab/off-target-probe-tracker.git
+cd off-target-probe-tracker
+bash install.sh
 ```
+
+This script will:
+1. Create a conda environment named `opt` from `environment.yml`
+2. Install mummer4 (via conda on Linux, via Homebrew on macOS)
+3. Install the `opt` Python package
+
+### Manual Installation
+
+#### Linux
+
+```bash
 conda create --name opt pip python=3.9
 conda activate opt
 conda config --add channels bioconda
 conda config --add channels conda-forge
 conda install gffread bowtie2 samtools mummer4
-git clone git@github.com:JEFworks/off-target-probe-tracker.git
-cd off-target-probe-tracker/
+git clone https://github.com/JEFworks-Lab/off-target-probe-tracker.git
+cd off-target-probe-tracker
 pip install .
 ```
-Please check mummer4 version == 4.0.1
 
+#### macOS
 
-### Mac Installation
-
-You will need to install the following packages and this repo. We recommend that the users install them in a new conda environment as follows:
-
-```
+```bash
 conda create --name opt pip python=3.9
 conda activate opt
 conda config --add channels bioconda
 conda config --add channels conda-forge
 conda install gffread bowtie2 samtools
-git clone git@github.com:JEFworks/off-target-probe-tracker.git
-cd off-target-probe-tracker/
+git clone https://github.com/JEFworks-Lab/off-target-probe-tracker.git
+cd off-target-probe-tracker
 pip install .
 ```
 
-To install mummer4 on Mac, you will need to use Brew rather than conda. Note that this will install it on your machine and not within the conda environment. To install mummer4 on Mac, use the following commands:
+mummer4 must be installed via Homebrew on macOS (conda does not support it):
 
-```
+```bash
 brew install autoconf automake libtool md5sha1sum
 gem install yaggo
 brew install mummer
 ```
-These instructions can be found on the mummer [installation.md](https://github.com/mummer4/mummer/blob/master/INSTALL.md). Please check mummer4 version == 4.0.1
 
+> **Note:** mummer version >= 4.0.1 is required. Run `mummer -h` to confirm a successful install.
 
-## Arguments
+---
 
-See below for the complete list of arguments:
-```
-Usage: opt [common_args] [MODULE] [args]
+## Web Interface (Streamlit App)
 
-*common_args
-      -o, --out-dir
-          output directory (REQUIRED)
-      -p, --threads
-          number of threads
-      --bam
-          store alignment files as BAM instead of SAM
-      -b
-          binary path for aligners (bowtie2 or mummer)
-      --gtf
-          input annotation is in GTF format not GFF
-      -l, --min-exact-match
-          minimum exact match for mummer alignments
-      --schema
-          When loading an annotation file, the following five keys must be specified to
-            define the schema used. These keys help extract essential transcript and
-            gene information from the GTF/GFF file:
-            1. feature type (3rd col) used for transcript entries
-            2. transcript ID attribute (contained in 9th col)
-            3. parent attribute for transcripts (contained in 9th col)
-            4. gene name attribute (contained in 9th col)
-            5. transcript type attribute (contained in 9th col)
+The easiest way to use OPT is through the interactive web app:
 
-            NOTE: annotations vary greatly in formats, so if you need assistance with
-            determining which schema is appropriate, please open a git issue.
-      --keep-dot
-          TODO
-      --force
-          prevents the program from loading results saved from previous runs
-      --skip-index
-          skip bowtie2 index building step
-
-*all args / options:
-      -q, --query
-          query probe sequences fasta (REQUIRED)
-      -t, --target
-          target transcript sequences fasta (REQUIRED)
-      -a, --annotation
-          target transcript annotation (REQUIRED)
-      -1, --one-mismatch
-          allow upto 1 mismatch
-      -pl, --pad-length
-          length of the pad where mis-alignment is allowed
-      --exclude-pseudo
-          exclude pseudogenes when counting off-target probes and affected genes
-      --pc-only
-          only include protein coding genes
-      -s, --syn-file
-          gene synonyms CSV file with 2 columns
-      
-*flip args / options:
-      -q, --query
-          query probe sequences fasta (REQUIRED)
-      -t, --target
-          target transcript sequences fasta (REQUIRED)
-      -a, --annotation
-          target transcript annotation (REQUIRED)
-
-*track args / options:
-      -q, --query
-          query probe sequences fasta (REQUIRED)
-      -t, --target
-          target transcript sequences fasta (REQUIRED)
-      -a, --annotation
-          target transcript annotation (REQUIRED)
-      -1, --one-mismatch
-          allow upto 1 mismatch
-      -pl, --pad-length
-          length of the pad where mis-alignment is allowed
-
-*stat args / options:
-      -i, --in-file
-          track module results file (i.e., probe2targets.csv) (REQUIRED)
-      -q, --query
-          query probe sequences fasta (REQUIRED)
-      --exclude-pseudo
-          exclude pseudogenes when counting off-target probes and affected genes
-      --pc-only
-          only include protein coding genes
-      -s, --syn-file
-          gene synonyms CSV file with 2 columns
+```bash
+conda activate opt
+streamlit run app.py
 ```
 
+Then open `http://localhost:8501` in your browser.
 
-## Usage
 
-There is a full example located in the [example.ipynb](https://github.com/JEFworks-Lab/off-target-probe-tracker/blob/main/example.ipynb) file. Below briefly describes what each module does.
+### App walkthrough
 
-`opt` consists of three modules: `flip`, `track`, and `stat`. 
+1. **Run Configuration** — set the output directory and number of threads.
+2. **Input Files** — provide paths to your probe FASTA, target transcript FASTA, and annotation GFF/GTF. Use the Browse buttons or type paths directly. An optional gene synonyms CSV can be provided to remap gene names.
+3. **Analysis Options:**
+   - **Pad length** — number of bases at each probe end where mismatches are tolerated (0 = strict perfect match required in the core region).
+   - **Max mismatches anywhere** — allow up to N mismatches anywhere across the full probe sequence. Can be combined with pad length: when both are set, both conditions must be satisfied.
+   - **Exclude pseudogenes / Protein-coding only** — filter the off-target summary by biotype.
+4. Click **Run OPT** to run all three modules (flip → track → stat) and view results in the dashboard below.
 
-The `all` module will do all three modules at once so you don't have to run them separately.
+The results dashboard shows:
+- Metric cards: genes with off-target binding, probes with off-target binding, protein-coding off-targets
+- Gene-level off-target table (one row per target gene → off-target gene pair) with biotype badges and CIGAR strings, sortable and filterable by biotype
+- Probe-level detail table (expandable)
+- Download buttons for all key output files
 
-```
-opt -o out_dir all -q probes.fa -a transcripts.gff -t transcripts.fa
-```
+---
 
-`flip` corrects probes that are aligning to the opposite strand of their intended target genes by reverse complementing them. We assume probe sequences are designed in the same strand as their targets. The module requires the annotation for the target transcripts as well as their sequences. We recommend that the users use [gffread](https://github.com/gpertea/gffread) to extract processed transcript sequences from annotation GFF/GTF files (e.g., `$ gffread -w transcripts.fa -g genome.fa transcripts.gff`).
+## Command-Line Interface
 
-```
-opt -o out_dir flip -q probes.fa -a transcripts.gff -t transcripts.fa
-```
+OPT consists of three modules — `flip`, `track`, `stat` — plus an `all` module that runs all three in sequence.
 
-This module outputs forward oriented probe sequences in a file called `fwd_oriented.fa`. 
+### Run all modules at once (recommended)
 
-`track` is the main module that aligns query probe sequences to any target transcriptome. We recommend that the users be mindful of which target transcriptome they are using during this prediction step. `opt` predicts off-target binding by aligning query probes to target transcripts. By default, binding is predicted for only perfect matches (i.e., no indels, clips, or mismatches). See options for flags that allow for more lenient predictions that allow for misalignments.
-
-Note that query.fa most likely will be fwd_oriented.fa
-
-```
-opt -o out_dir track -q query.fa -t target.fa -a target.gff
-```
-
-This module outputs a CSV file containing the gene and transcript information to which each probe aligns in a file called `probe2targets.tsv`. Each probe is also annotated with the number of genes it aligns to as well as the CIGAR strings for its alignments.
-
-`stat` will summarize `opt` binding predictions.
-
-```
-opt -o out_dir stat -i probe2targets.tsv -q query.fa
+```bash
+opt -o out_dir all -q probes.fa -t transcripts.fa -a transcripts.gff
 ```
 
-For each targeted gene, the `stat.summary.tsv` file shows the number of probes and the genes those probes aligns to. For each pair of (target_gene, binding_gene), the module annotates number of alignments to the binding_gene and the corresponding number of probes (n of probes << n of alignmennts). Finally, the `collapsed_summary.tsv` file shows the target gene, number of probes, genes that the probes aligned to, number of alignments, and number of probes aligned to each gene in column 3 (similar to what is shown in Table 1 of our paper).
+### Common arguments (apply to all modules)
 
+| Argument | Description |
+|---|---|
+| `-o`, `--out-dir` | Output directory **(required)** |
+| `-p`, `--threads` | Number of threads (default: 1) |
+| `--bam` | Store alignments as BAM instead of SAM |
+| `-l`, `--min-exact-match` | Minimum exact match length for nucmer (default: 20) |
+| `--schema` | Comma-separated list of 5 GFF/GTF schema fields (see below) |
+| `--keep-dot` | Keep version suffixes in gene IDs (e.g. ENSG00000.1) |
+| `--force` | Recompute all steps, ignoring any cached results |
+| `--skip-index` | Skip Bowtie2 index build step |
 
+### `flip` — correct probe strand orientation
 
-## Notes
-
-### Probe ID format
-
-The target gene name and ID within the query.fa is expected to be in the following format:
-
-`>gene_id|gene_name|accession`
-
-
-### mummer4 installation
-
-It's important the mummer4 version is >= 4.0.1. If not, you can compile and install the latest release of mummer4 available [here](https://github.com/mummer4/mummer/releases). To compile and install mummer4:
-
-if you've downloaded a newer release, replace 4.0.1 with the correct version number
-```
-wget https://github.com/mummer4/mummer/releases/download/v4.0.1/mummer-4.0.1.tar.gz
-tar -xvzf mummer-4.0.1.tar.gz
-cd mummer-4.0.1
-./configure --prefix=$(pwd)
-make
-make install
-export PATH=$PATH:$(pwd)
+```bash
+opt -o out_dir flip -q probes.fa -t transcripts.fa -a transcripts.gff
 ```
 
-To check if you've successfully installed MUMmer4, try running:
+Probes are expected to be on the same strand as their target gene. `flip` detects probes that align to the reverse complement of their target and flips them. Output: `fwd_oriented.fa`.
+
+### `track` — align probes and detect off-target binding
+
+```bash
+opt -o out_dir track -q fwd_oriented.fa -t transcripts.fa -a transcripts.gff
+```
+
+| Argument | Description |
+|---|---|
+| `-q`, `--query` | Query probe FASTA **(required)** |
+| `-t`, `--target` | Target transcript FASTA **(required)** |
+| `-a`, `--annotation` | Annotation GFF/GTF **(required)** |
+| `-pl`, `--pad-length` | Tolerate mismatches in the terminal N bases of each probe end |
+| `-mm`, `--max-mismatches` | Allow up to N mismatches anywhere in the full probe (-1 = disabled) |
+| `-1`, `--one-mismatch` | Allow up to 1 mismatch using mummer exact-match extension |
+
+Output: `probe2targets.tsv` (all probes) and `probe2targets_offtargets.tsv` (probes mapping to >1 gene).
+
+### `stat` — summarize off-target predictions
+
+```bash
+opt -o out_dir stat -i probe2targets.tsv -q probes.fa
+```
+
+| Argument | Description |
+|---|---|
+| `-i`, `--in-file` | `probe2targets.tsv` from the track module **(required)** |
+| `-q`, `--query` | Query probe FASTA **(required)** |
+| `--exclude-pseudo` | Exclude pseudogenes from off-target counts |
+| `--pc-only` | Count only protein-coding genes as off-targets |
+| `-s`, `--syn-file` | Gene synonyms CSV (two columns: old name, new name) |
+
+---
+
+## Input File Formats
+
+### Probe FASTA
+
+Headers must follow this format:
 
 ```
-mummer -h
+>gene_id|gene_name|accession
 ```
 
-You should see the mummer help manual outputted in the terminal.
+Example:
+```
+>ENSG00000170458|CD14|22f9405
+ATCGATCGATCGATCGATCG...
+```
 
-Note that every time you open a new kernel or shell session, you'll need to repeat the `EXPORT` command. To avoid it, you can add `export PATH=$PATH:$(pwd)` to your kernel / shell config file (e.g., `~/.bashrc`).
+### Target transcript FASTA
 
-Similarly, if samtools is not installing through conda, we recommend that you compile and install it.
+Standard nucleotide FASTA of transcript sequences. We recommend extracting these with [gffread](https://github.com/gpertea/gffread):
+
+```bash
+gffread -w transcripts.fa -g genome.fa annotation.gff
+```
+
+### Annotation GFF/GTF
+
+Standard GFF3 or GTF format, optionally gzip-compressed (`.gff.gz`, `.gtf.gz`). GENCODE, RefSeq, and CHESS formats are all supported. For non-standard annotation formats, use `--schema` to specify the correct field names (see below).
+
+### Gene Synonyms CSV (optional)
+
+Two-column CSV mapping old gene names to new names. No header required:
+
+```
+WARS,WARS1
+CARS,CARS1
+```
+
+---
+
+## GFF/GTF Schema
+
+The `--schema` argument specifies five comma-separated field names used to parse the annotation:
+
+```
+transcript,ID,Parent,gene_name,transcript_type
+```
+
+| Position | Description | GENCODE GFF | RefSeq GFF | GTF |
+|---|---|---|---|---|
+| 1 | Feature type (col 3) | `transcript` | `transcript` | `transcript` |
+| 2 | Transcript ID attribute | `ID` | `ID` | `transcript_id` |
+| 3 | Parent (gene) attribute | `Parent` | `Parent` | `gene_id` |
+| 4 | Gene name attribute | `gene_name` | `gene` | `gene_name` |
+| 5 | Transcript type attribute | `transcript_type` | `transcript_biotype` | `transcript_type` |
+
+If you are unsure which schema to use, open a GitHub issue.
+
+---
+
+## Output Files
+
+| File | Description |
+|---|---|
+| `fwd_oriented.fa` | Strand-corrected probe sequences (from flip) |
+| `flip_t2g.csv` | Transcript-to-gene map built during flip |
+| `probe2targets.tsv` | All probe alignments with gene and CIGAR info |
+| `probe2targets_offtargets.tsv` | Probes mapping to more than one gene |
+| `collapsed_summary.tsv` | Per-gene summary of all probe alignments |
+| `collapsed_summary_offtargets.tsv` | Per-gene summary for off-target genes only |
+| `stat_off_target_probes.txt` | List of off-target probe IDs |
+| `stat_off_target_genes.txt` | List of off-target gene names |
+| `stat_missed_probes.txt` | Probes that did not align to their target gene |
+| `stat_missed_genes.txt` | Target genes with no aligned probes |
+| `track.unmapped.txt` | Probes with no alignments |
+| `track.no_hit.txt` | Probes that aligned but passed no acceptance threshold |
+
+---
+
+## Bundled Reference Data
+
+The `data/` directory includes pre-formatted reference files for human:
+
+| Source | Files |
+|---|---|
+| GENCODE v47 | `data/gencode/gencode.v47.basic.annotation.fmted.fa` / `.gff` |
+| RefSeq v110 | `data/refseq/refseq.v110.noAlt.noFix.filtered.fa.gz` / `.gff.gz` |
+| CHESS 3.1.3 | `data/chess/chess3.1.3.GRCh38.primary.fa.gz` / `.gff.gz` |
+
+An example gene synonyms file is at `data/gene_synonyms.csv`.
+
+---
+
+## Supported Platforms
+
+- Linux (tested)
+- macOS (tested; mummer4 requires Homebrew)
+
+---
+
+## License
+
+See [LICENSE.md](LICENSE.md).
