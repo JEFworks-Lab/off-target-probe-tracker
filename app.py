@@ -2,6 +2,8 @@ import streamlit as st
 import subprocess
 import os
 import re
+import time
+import threading
 import pandas as pd
 
 # ── ANSI / log helpers ────────────────────────────────────────────────────────
@@ -51,6 +53,7 @@ def browse_file(session_key: str, prompt: str = "Select a file") -> None:
         path = result.stdout.strip()
         if path:
             st.session_state[session_key] = path
+            st.rerun()
     except subprocess.TimeoutExpired:
         st.warning("File browser timed out. Please type the path manually.")
     except Exception as e:
@@ -60,20 +63,40 @@ def browse_file(session_key: str, prompt: str = "Select a file") -> None:
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="OPT — Off-target Probe Tracker",
-    page_icon="🧬",
+    page_icon="🧬🧬🧬",
     layout="wide",
 )
 
 DEFAULT_SCHEMA = ["transcript", "ID", "Parent", "gene_name", "transcript_type"]
 
+SCHEMA_PRESETS = {
+    "GENCODE": "transcript,ID,Parent,gene_name,transcript_type",
+    "RefSeq":  "transcript,ID,Parent,gene,gbkey",
+    "CHESS":   "transcript,ID,Parent,gene_name,gene_type",
+}
+
+_REF_COLORS = {"GENCODE": "#1f77b4", "CHESS": "#17becf", "RefSeq": "#2ca02c"}
+_MULTI_PRESET = "All (GENCODE + CHESS + RefSeq)"
+
 
 # ── Biotype color helpers ─────────────────────────────────────────────────────
+def _normalize_biotype(biotype: str) -> str:
+    """Return canonical group name used for filtering and sorting."""
+    if biotype in ("protein_coding", "mRNA"):
+        return "protein coding"
+    if "pseudogene" in biotype:
+        return "pseudogene"
+    if biotype in ("lncRNA", "ncRNA"):
+        return "lncRNA / ncRNA"
+    return biotype.replace("_", " ")
+
+
 def _biotype_color(biotype: str) -> str:
     if biotype in ("protein_coding", "mRNA"):
         return "#d62728"
     if "pseudogene" in biotype:
         return "#888888"
-    if biotype == "lncRNA":
+    if biotype in ("lncRNA", "ncRNA"):
         return "#e07b00"
     if biotype in ("miscRNA", "miRNA", "snoRNA", "snRNA"):
         return "#9467bd"
@@ -82,7 +105,13 @@ def _biotype_color(biotype: str) -> str:
 
 def _biotype_badge(biotype: str) -> str:
     color = _biotype_color(biotype)
-    label = biotype.replace("_", " ")
+    # Normalize label for grouped types; pseudogenes keep their specific name
+    if biotype in ("protein_coding", "mRNA"):
+        label = "protein coding"
+    elif biotype in ("lncRNA", "ncRNA"):
+        label = "lncRNA / ncRNA"
+    else:
+        label = biotype.replace("_", " ")
     return (
         f'<span style="background:{color};color:white;padding:2px 7px;'
         f'border-radius:3px;font-size:0.78em;margin:1px;display:inline-block">'
@@ -102,12 +131,27 @@ def init_session_state():
         "biotype_filter": "All",
         "table_sort_col": "Target gene",
         "table_sort_asc": True,
+        "opt_running":         False,
+        "opt_log_path":        None,
+        "opt_rc_path":         None,
+        "opt_multi_mode":      False,
+        "opt_runs_queue":      [],
+        "opt_current_run":     {},
+        "opt_completed_runs":  [],
+        "opt_out_dir_base":       None,
+        "run_annotation_preset":  "",
         # Path fields managed via Browse (not owned by any widget via key=)
-        "all_query_path_val": "",
-        "all_target_val":     "",
-        "all_annotation_val": "",
-        "all_syn_val":        "",
-        "all_out_dir_val":    "./opt_results",
+        "all_query_path_val":     "",
+        "all_target_val":         "",
+        "all_annotation_val":     "",
+        "all_syn_val":            "",
+        "all_out_dir_val":        "./opt_results",
+        "multi_gencode_ann_val":  "",
+        "multi_gencode_fa_val":   "",
+        "multi_chess_ann_val":    "",
+        "multi_chess_fa_val":     "",
+        "multi_refseq_ann_val":   "",
+        "multi_refseq_fa_val":    "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -119,21 +163,41 @@ def render_header() -> None:
     st.title("OPT — Off-target Probe Tracker")
     st.markdown(
         """
-        OPT identifies off-target binding of spatial transcriptomics probes
-        (Xenium, MERSCOPE, CosMx, and others) against a reference transcriptome
-        using nucleotide alignment (nucmer). The pipeline runs three steps automatically:
-        **flip** corrects probe strand orientation by aligning to the source transcriptome,
-        **track** aligns probes to all transcripts in the target transcriptome and flags
-        probes that map to more than one gene as off-target, and **stat** summarizes
-        off-target binding by gene and transcript biotype.
+        OPT identifies potential off-target binding of probe sequences against a reference transcriptome using nucleotide alignment (**nucmer**). The goal of OPT is to help evaluate probe specificity before experiments by detecting probes that may hybridize to unintended transcripts.
 
-        **Citation:** Hallinan et al., *eLife* 2025.
-        [https://elifesciences.org/reviewed-preprints/107070](https://elifesciences.org/reviewed-preprints/107070)
+        The pipeline runs three steps automatically:
+
+        **flip** - aligns probe sequences to the source transcriptome to determine the correct strand orientation and ensures probes are evaluated in the proper direction.
+
+        **track** - aligns the corrected probe sequences to all transcripts in the selected reference transcriptome and identifies probes that map to more than one gene, flagging these as potential off-target probes.
+
+        **stat** - aggregates the alignment results and summarizes off-target binding events by target gene, off-target gene, and transcript biotype.
+
+        ### Using this app
+
+        This Streamlit application provides an interactive interface to run OPT without using the command line. Users can:
+
+        -  Load probe sequences and reference annotation files  
+        -  Configure alignment parameters  
+        -  Run the OPT pipeline directly from the browser  
+
+        ### Output and results
+
+        After the analysis completes, the app summarizes results with:
+
+        -  A table listing each **target gene**
+        -  The number of **probes with detected off-targets**
+        -  The corresponding **off-target genes**
+        -  The **gene biotype** of the off-target transcripts
+        -  The **CIGAR alignment patterns** describing how probes aligned to those transcripts
+
+        The Streamlit interface highlights the key off-target results so users can quickly identify problematic probes. All original OPT output files are also saved to the specified output directory for further inspection or downstream analysis.
+
+        If you find this tool useful in your research, please consider citing:
+
+        Hallinan et al., *eLife* 2025  
+        https://elifesciences.org/reviewed-preprints/107070
         """
-    )
-    st.info(
-        "**Probe FASTA header format required:** `>gene_id|gene_name|accession`  \n"
-        "Example: `>ENSG00000170458|CD14|22f9405`"
     )
 
 
@@ -175,6 +239,9 @@ def _path_field(
                 '<span style="color:#d62728;font-size:0.82em">&#10007; File not found</span>',
                 unsafe_allow_html=True,
             )
+    # Show help text as an info box for optional fields (label is collapsed so tooltip is hidden)
+    if optional and help_text:
+        st.info(help_text)
     return path
 
 
@@ -193,7 +260,10 @@ def render_all_inputs() -> tuple:
         )
         st.session_state["all_out_dir_val"] = out_dir
     with th_col:
-        threads = st.slider("Threads", min_value=1, max_value=16, value=1)
+        threads = st.slider(
+            "Threads", min_value=1, max_value=16, value=1,
+            help="Number of CPU threads passed to nucmer (-t). More threads speeds up alignment."
+        )
 
     st.divider()
     st.subheader("Input Files")
@@ -201,41 +271,105 @@ def render_all_inputs() -> tuple:
     query_path = _path_field(
         "Probe FASTA", "all_query_path_val", "all_query_browse",
         "Select Probe FASTA",
-        "/path/to/probes.fa or probes.fa.gz",
-        "Path to probe sequences (.fa or .fa.gz). Header format: >gene_id|gene_name|accession",
+        "/path/to/probes.fa",
+        "Path to probe sequences (.fa or .fasta). Header format: >gene_id|gene_name|accession",
     )
-    target = _path_field(
-        "Target transcript FASTA", "all_target_val", "all_target_browse",
-        "Select Target Transcript FASTA",
-        "/path/to/transcripts.fa.gz",
-        "Local path to target transcript sequences. Supports .fa and .fa.gz.",
+    st.info(
+        "**Probe FASTA header format required:** `>gene_id|gene_name|accession`  \n"
+        "Example: `>ENSG00000170458|CD14|22f9405`"
     )
-    annotation = _path_field(
-        "Annotation GFF/GTF", "all_annotation_val", "all_annotation_browse",
-        "Select Annotation GFF/GTF",
-        "/path/to/annotation.gff.gz",
-        "Local path to transcript annotation. Supports .gff, .gtf, and .gz.",
+
+    # Annotation format selection — determines single vs. multi-annotation inputs
+    st.caption("Annotation format")
+    schema_preset_early = st.radio(
+        "Annotation format",
+        ["GENCODE", "RefSeq", "CHESS", "Other", _MULTI_PRESET],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="schema_preset_radio",
+        help=(
+            "Select the source of your annotation GFF file. "
+            "Choose 'All' to run against GENCODE, CHESS, and RefSeq simultaneously."
+        ),
     )
+
+    multi_mode = schema_preset_early == _MULTI_PRESET
+
+    if not multi_mode:
+        target = _path_field(
+            "Target transcript FASTA", "all_target_val", "all_target_browse",
+            "Select Target Transcript FASTA",
+            "/path/to/transcripts.fa",
+            "Local path to target transcript sequences (.fa or .fasta).",
+        )
+        annotation = _path_field(
+            "Annotation GFF/GTF", "all_annotation_val", "all_annotation_browse",
+            "Select Annotation GFF/GTF",
+            "/path/to/annotation.gff",
+            "Local path to transcript annotation (.gff, .gff3, or .gtf).",
+        )
+    else:
+        target = ""
+        annotation = ""
+        st.caption("Provide transcript FASTA and annotation GFF for each reference:")
+        for ref_name, fa_key, ann_key in [
+            ("GENCODE", "multi_gencode_fa_val", "multi_gencode_ann_val"),
+            ("CHESS",   "multi_chess_fa_val",   "multi_chess_ann_val"),
+            ("RefSeq",  "multi_refseq_fa_val",  "multi_refseq_ann_val"),
+        ]:
+            color = _REF_COLORS[ref_name]
+            st.markdown(
+                f'<span style="background:{color};color:white;padding:2px 8px;'
+                f'border-radius:3px;font-size:0.85em;font-weight:bold">{ref_name}</span>',
+                unsafe_allow_html=True,
+            )
+            _path_field(
+                f"{ref_name} transcript FASTA", fa_key, f"{ref_name.lower()}_fa_browse",
+                f"Select {ref_name} Transcript FASTA",
+                "/path/to/transcripts.fa", "",
+            )
+            _path_field(
+                f"{ref_name} annotation GFF", ann_key, f"{ref_name.lower()}_ann_browse",
+                f"Select {ref_name} Annotation GFF",
+                "/path/to/annotation.gff", "",
+            )
+
     syn_file = _path_field(
         "Gene synonyms CSV", "all_syn_val", "all_syn_browse",
         "Select Gene Synonyms CSV",
         "/path/to/synonyms.csv",
-        "Optional. Two-column CSV mapping gene name variants (e.g. MYCN,N-Myc).",
+        (
+            "Use this if the gene names in your probe FASTA headers differ from those in the "
+            "reference annotation — for example, WARS vs WARS1, or MYCN vs N-Myc. "
+            "The file should be a two-column CSV with no header: "
+            "column 1 = probe gene name, column 2 = annotation gene name. "
+            "Example row: WARS,WARS1"
+        ),
         optional=True,
     )
 
     st.divider()
     st.subheader("Analysis Options")
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        pad_length = st.number_input(
-            "Pad length (-pl)", min_value=0, value=0, step=1,
-            help="Length of probe ends where misalignment is tolerated.",
+    col_pl_en, col_pl_val = st.columns([1, 2])
+    with col_pl_en:
+        use_pl = st.checkbox(
+            "Pad length (-pl)", value=False,
+            help=(
+                "Number of bases at each end of the probe where mismatches are allowed. "
+                "This parameter was used in the original paper because Xenium probes are circular "
+                "and can tolerate mismatches at the termini, while correct base pairing in the "
+                "central region is required for ligation."
+            ),
         )
-    with col_b:
-        excl_pseudo = st.checkbox("Exclude pseudogenes (--exclude-pseudo)", value=False)
-        pc_only     = st.checkbox("Protein-coding only (--pc-only)", value=False)
+    with col_pl_val:
+        pl_val = st.number_input(
+            "Pad length value",
+            min_value=1, max_value=20, value=10, step=1,
+            disabled=not use_pl,
+            label_visibility="collapsed",
+        )
+    pad_length = int(pl_val) if use_pl else 0
 
     col_mm_en, col_mm_val = st.columns([1, 2])
     with col_mm_en:
@@ -250,12 +384,35 @@ def render_all_inputs() -> tuple:
     with col_mm_val:
         mm_val = st.number_input(
             "Max mismatches value",
-            min_value=0, max_value=10, value=1, step=1,
+            min_value=0, max_value=10, value=5, step=1,
             disabled=not use_mm,
-            help="Maximum number of mismatches allowed across the full probe sequence.",
             label_visibility="collapsed",
         )
     max_mismatches = int(mm_val) if use_mm else -1
+
+    # Schema fields — only for single-annotation mode
+    if not multi_mode:
+        if schema_preset_early == "Other":
+            st.caption("GFF/GTF Schema (--schema)")
+            st.caption(
+                "Five fields used to parse the annotation file. "
+                "See the README for guidance on non-standard annotation formats."
+            )
+            labels = [
+                "Feature type (3rd col)",
+                "Transcript ID attribute",
+                "Parent attribute",
+                "Gene name attribute",
+                "Transcript type attribute",
+            ]
+            schema_fields = [
+                st.text_input(f"Field {i+1}: {label}", value=DEFAULT_SCHEMA[i], key=f"schema_{i}")
+                for i, label in enumerate(labels)
+            ]
+        else:
+            schema_fields = SCHEMA_PRESETS[schema_preset_early].split(",")
+    else:
+        schema_fields = DEFAULT_SCHEMA  # unused in multi-mode
 
     with st.expander("Advanced Options", expanded=False):
         bam = st.checkbox(
@@ -264,33 +421,8 @@ def render_all_inputs() -> tuple:
         )
         min_exact = st.number_input(
             "Min exact match length (-l)", min_value=1, value=20, step=1,
-            help="Minimum exact match length for nucmer.",
+            help="Minimum exact match length used by nucmer. Increasing this value speeds up the search but may miss off-targets that share only short exact matches with the probe. Decreasing it increases sensitivity and may detect more potential off-targets, but will increase runtime and may introduce more false positives. The default is 20, which provides a good balance for probes 25-50 nt in length.",
         )
-        keep_dot = st.checkbox(
-            "Keep version numbers in gene IDs (--keep-dot)", value=False,
-        )
-        force = st.checkbox(
-            "Force rebuild (--force)", value=False,
-            help="Ignore cached results from previous runs and recompute everything.",
-        )
-
-        st.caption("GFF/GTF Schema (--schema)")
-        st.caption(
-            "Five fields used to parse the annotation file. "
-            "Defaults work for GENCODE GFF. Change if using RefSeq or CHESS."
-        )
-        labels = [
-            "Feature type (3rd col)",
-            "Transcript ID attribute",
-            "Parent attribute",
-            "Gene name attribute",
-            "Transcript type attribute",
-        ]
-        schema_fields = [
-            st.text_input(f"Field {i+1}: {label}", value=DEFAULT_SCHEMA[i], key=f"schema_{i}")
-            for i, label in enumerate(labels)
-        ]
-
         st.info(
             "For Bowtie2 or a custom aligner, use the CLI version:  \n"
             "https://github.com/JEFworks-Lab/off-target-probe-tracker"
@@ -301,8 +433,6 @@ def render_all_inputs() -> tuple:
         "threads":       threads,
         "bam":           bam,
         "min_exact":     min_exact,
-        "keep_dot":      keep_dot,
-        "force":         force,
         "schema":        ",".join(schema_fields),
         "schema_fields": schema_fields,
     }
@@ -313,8 +443,25 @@ def render_all_inputs() -> tuple:
         "syn_file":        syn_file,
         "pad_length":      pad_length,
         "max_mismatches":  max_mismatches,
-        "exclude_pseudo":  excl_pseudo,
-        "pc_only":         pc_only,
+        "multi_mode":        multi_mode,
+        "annotation_preset": schema_preset_early,
+        "multi_refs": {
+            "GENCODE": {
+                "annotation": st.session_state.get("multi_gencode_ann_val", ""),
+                "target":     st.session_state.get("multi_gencode_fa_val",  ""),
+                "schema":     SCHEMA_PRESETS["GENCODE"],
+            },
+            "CHESS": {
+                "annotation": st.session_state.get("multi_chess_ann_val", ""),
+                "target":     st.session_state.get("multi_chess_fa_val",  ""),
+                "schema":     SCHEMA_PRESETS["CHESS"],
+            },
+            "RefSeq": {
+                "annotation": st.session_state.get("multi_refseq_ann_val", ""),
+                "target":     st.session_state.get("multi_refseq_fa_val",  ""),
+                "schema":     SCHEMA_PRESETS["RefSeq"],
+            },
+        },
     }
     return global_args, module_inputs
 
@@ -328,10 +475,7 @@ def build_command(global_args: dict, module_inputs: dict) -> list:
         cmd.append("--bam")
     cmd += ["-l", str(global_args["min_exact"])]
     cmd += ["--schema", global_args["schema"]]
-    if global_args["keep_dot"]:
-        cmd.append("--keep-dot")
-    if global_args["force"]:
-        cmd.append("--force")
+    cmd.append("--force")
 
     cmd.append("all")
 
@@ -343,10 +487,6 @@ def build_command(global_args: dict, module_inputs: dict) -> list:
     if module_inputs.get("max_mismatches", -1) >= 0:
         cmd += ["-mm", str(module_inputs["max_mismatches"])]
 
-    if module_inputs.get("exclude_pseudo"):
-        cmd.append("--exclude-pseudo")
-    if module_inputs.get("pc_only"):
-        cmd.append("--pc-only")
     syn = module_inputs.get("syn_file", "").strip()
     if syn:
         cmd += ["-s", syn]
@@ -355,28 +495,61 @@ def build_command(global_args: dict, module_inputs: dict) -> list:
 
 
 # ── Validate inputs ───────────────────────────────────────────────────────────
+def _check_ext(path: str, allowed: tuple, label: str, errors: list) -> None:
+    """Append an error if path does not end with one of the allowed extensions."""
+    if path and not any(path.lower().endswith(ext) for ext in allowed):
+        errors.append(f"{label} must be {' or '.join(allowed)} (got: '{path}')")
+
+
 def validate_inputs(global_args: dict, module_inputs: dict) -> list:
     errors = []
     if not global_args["out_dir"]:
         errors.append("Output directory is required.")
-    for field in global_args.get("schema_fields", []):
-        if "," in field:
-            errors.append(f"Schema field contains a comma: '{field}'. Remove it.")
-    for field, label in [
-        ("query",      "Probe FASTA"),
-        ("target",     "Target transcript FASTA"),
-        ("annotation", "Annotation GFF/GTF"),
-    ]:
-        path = module_inputs.get(field, "").strip()
-        if not path:
-            errors.append(f"{label} path is required.")
-        elif not os.path.exists(path):
-            errors.append(f"{label} path does not exist: '{path}'")
+
+    _FA_EXTS  = (".fa", ".fasta")
+    _ANN_EXTS = (".gff", ".gff3", ".gtf")
+
+    if module_inputs.get("multi_mode"):
+        # Multi-annotation: validate probe FASTA + all 6 reference files
+        query = module_inputs.get("query", "").strip()
+        if not query:
+            errors.append("Probe FASTA path is required.")
+        else:
+            _check_ext(query, _FA_EXTS, "Probe FASTA", errors)
+            if not os.path.exists(query):
+                errors.append(f"Probe FASTA does not exist: '{query}'")
+        for ref_name, ref_info in module_inputs.get("multi_refs", {}).items():
+            for ftype, key, exts in [
+                ("annotation GFF", "annotation", _ANN_EXTS),
+                ("transcript FASTA", "target",   _FA_EXTS),
+            ]:
+                path = ref_info.get(key, "").strip()
+                if not path:
+                    errors.append(f"{ref_name} {ftype} path is required.")
+                else:
+                    _check_ext(path, exts, f"{ref_name} {ftype}", errors)
+                    if not os.path.exists(path):
+                        errors.append(f"{ref_name} {ftype} does not exist: '{path}'")
+    else:
+        for field in global_args.get("schema_fields", []):
+            if "," in field:
+                errors.append(f"Schema field contains a comma: '{field}'. Remove it.")
+        for field, label, exts in [
+            ("query",      "Probe FASTA",            _FA_EXTS),
+            ("target",     "Target transcript FASTA", _FA_EXTS),
+            ("annotation", "Annotation GFF/GTF",      _ANN_EXTS),
+        ]:
+            path = module_inputs.get(field, "").strip()
+            if not path:
+                errors.append(f"{label} path is required.")
+            else:
+                _check_ext(path, exts, label, errors)
+                if not os.path.exists(path):
+                    errors.append(f"{label} path does not exist: '{path}'")
+
     syn = module_inputs.get("syn_file", "").strip()
     if syn and not os.path.exists(syn):
         errors.append(f"Gene synonyms file does not exist: '{syn}'")
-    if module_inputs.get("pc_only") and module_inputs.get("exclude_pseudo"):
-        errors.append("Cannot use both --pc-only and --exclude-pseudo at the same time.")
     return errors
 
 
@@ -403,6 +576,91 @@ def _step_html(current_step: int) -> str:
 
 
 # ── Run OPT ───────────────────────────────────────────────────────────────────
+def _wait_for_proc(proc, rc_path: str) -> None:
+    """Daemon thread: waits for proc to finish, writes exit code to rc_path."""
+    proc.wait()
+    with open(rc_path, "w") as f:
+        f.write(str(proc.returncode))
+
+
+def _start_run(spec: dict) -> None:
+    """Launch one opt run as a non-blocking background process."""
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    log_f = open(spec["log_path"], "w")
+    proc  = subprocess.Popen(
+        spec["cmd"], stdout=log_f, stderr=subprocess.STDOUT, text=True, env=env,
+    )
+    threading.Thread(target=_wait_for_proc, args=(proc, spec["rc_path"]),
+                     daemon=True).start()
+    st.session_state["opt_log_path"] = spec["log_path"]
+    st.session_state["opt_rc_path"]  = spec["rc_path"]
+
+
+def build_multi_commands(global_args: dict, module_inputs: dict) -> list:
+    """Return a list of run spec dicts (one per reference annotation)."""
+    base_out = global_args["out_dir"]
+    specs = []
+    for ref_name, ref_info in module_inputs["multi_refs"].items():
+        sub_dir = os.path.join(base_out, ref_name.lower())
+        cmd = [
+            "opt",
+            "-o", sub_dir,
+            "-p", str(global_args["threads"]),
+            "-l", str(global_args["min_exact"]),
+            "--schema", ref_info["schema"],
+            "--force",
+            "all",
+            "-q", module_inputs["query"].strip(),
+            "-t", ref_info["target"].strip(),
+            "-a", ref_info["annotation"].strip(),
+            "-pl", str(module_inputs["pad_length"]),
+        ]
+        if module_inputs.get("max_mismatches", -1) >= 0:
+            cmd += ["-mm", str(module_inputs["max_mismatches"])]
+        syn = module_inputs.get("syn_file", "").strip()
+        if syn:
+            cmd += ["-s", syn]
+        specs.append({"name": ref_name, "cmd": cmd, "out_dir": sub_dir})
+    return specs
+
+
+def _merge_multi_results(completed_runs: list, out_dir: str) -> None:
+    """Merge TSV results from all annotation subdirs into out_dir."""
+    probe_dfs   = []
+    summary_dfs = []
+    probe_ids_union: set = set()
+
+    for run in completed_runs:
+        sub_dir  = run["out_dir"]
+        ref_name = run["name"]
+        p_path = os.path.join(sub_dir, "probe2targets_offtargets.tsv")
+        s_path = os.path.join(sub_dir, "collapsed_summary_offtargets.tsv")
+        if os.path.exists(p_path):
+            df = pd.read_csv(p_path, sep="\t")
+            df["reference_annotation"] = ref_name
+            probe_dfs.append(df)
+            if "probe_id" in df.columns:
+                probe_ids_union.update(df["probe_id"].astype(str))
+        if os.path.exists(s_path):
+            df = pd.read_csv(s_path, sep="\t")
+            df["reference_annotation"] = ref_name
+            summary_dfs.append(df)
+
+    if probe_dfs:
+        pd.concat(probe_dfs, ignore_index=True).to_csv(
+            os.path.join(out_dir, "probe2targets_offtargets.tsv"), sep="\t", index=False)
+    if summary_dfs:
+        merged = pd.concat(summary_dfs, ignore_index=True)
+        if "target_gene" in merged.columns:
+            merged = merged.drop_duplicates(subset=["target_gene"], keep="first")
+        merged.to_csv(
+            os.path.join(out_dir, "collapsed_summary_offtargets.tsv"), sep="\t", index=False)
+    with open(os.path.join(out_dir, "stat_off_target_probes.txt"), "w") as f:
+        for pid in sorted(probe_ids_union):
+            f.write(pid + "\n")
+
+
 def run_opt(global_args: dict, module_inputs: dict) -> None:
     errors = validate_inputs(global_args, module_inputs)
     if errors:
@@ -410,22 +668,32 @@ def run_opt(global_args: dict, module_inputs: dict) -> None:
             st.error(e)
         return
 
-    cmd = build_command(global_args, module_inputs)
-    st.session_state["last_cmd"]     = " ".join(cmd)
-    st.session_state["current_step"] = 0
-    os.makedirs(global_args["out_dir"], exist_ok=True)
+    if module_inputs.get("multi_mode"):
+        _run_multi_opt(global_args, module_inputs)
+        return
 
-    collected_lines = []
+    cmd     = build_command(global_args, module_inputs)
+    out_dir = global_args["out_dir"]
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Persist annotation preset to disk so it survives page refresh / app restart
+    preset = module_inputs.get("annotation_preset", "")
+    if preset in _REF_COLORS:
+        with open(os.path.join(out_dir, "_opt_annotation_preset.txt"), "w") as _f:
+            _f.write(preset)
+
+    log_path = os.path.join(out_dir, "_opt_run.log")
+    rc_path  = os.path.join(out_dir, "_opt_run.rc")
+    for p in [log_path, rc_path]:
+        if os.path.exists(p):
+            os.remove(p)
+
     try:
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
+        log_f = open(log_path, "w")
+        proc  = subprocess.Popen(
+            cmd, stdout=log_f, stderr=subprocess.STDOUT, text=True, env=env,
         )
     except FileNotFoundError:
         st.error(
@@ -435,43 +703,195 @@ def run_opt(global_args: dict, module_inputs: dict) -> None:
         )
         return
 
-    with st.status("Running OPT...", expanded=True) as status:
-        step_placeholder = st.empty()
-        log_placeholder  = st.empty()
-        formatted_lines  = []
-        current_step     = 0
+    threading.Thread(target=_wait_for_proc, args=(proc, rc_path), daemon=True).start()
 
-        for raw_line in proc.stdout:
-            collected_lines.append(raw_line)
-            clean = _strip_ansi(raw_line)
-            # Detect which module just started
-            if "FLIP module" in clean and "START" in clean:
-                current_step = 1
-            elif "TRACK module" in clean and "START" in clean:
-                current_step = 2
-            elif "STAT module" in clean and "START" in clean:
-                current_step = 3
-            step_placeholder.markdown(_step_html(current_step), unsafe_allow_html=True)
-            fmt = _fmt_line(raw_line)
-            if fmt:
-                formatted_lines.append(fmt)
-                log_placeholder.markdown("<br>".join(formatted_lines), unsafe_allow_html=True)
-
-        proc.wait()
-        rc = proc.returncode
-        if rc == 0:
-            current_step = 4
-            step_placeholder.markdown(_step_html(4), unsafe_allow_html=True)
-            status.update(label="OPT finished successfully", state="complete", expanded=False)
-        else:
-            status.update(label=f"OPT failed (exit code {rc})", state="error", expanded=True)
-
-    st.session_state["run_stdout"]     = "".join(collected_lines)
-    st.session_state["run_returncode"] = rc
+    st.session_state["last_cmd"]              = " ".join(cmd)
+    st.session_state["opt_running"]           = True
+    st.session_state["opt_multi_mode"]        = False
+    st.session_state["run_annotation_preset"] = module_inputs.get("annotation_preset", "")
+    st.session_state["opt_log_path"]   = log_path
+    st.session_state["opt_rc_path"]    = rc_path
+    st.session_state["run_returncode"] = None
+    st.session_state["run_stdout"]     = None
+    st.session_state["out_dir"]        = out_dir
     st.session_state["run_module"]     = "all"
-    st.session_state["out_dir"]        = global_args["out_dir"]
-    st.session_state["current_step"]   = current_step
+    st.session_state["current_step"]   = 0
     st.session_state["biotype_filter"] = "All"
+
+
+def _run_multi_opt(global_args: dict, module_inputs: dict) -> None:
+    base_out = global_args["out_dir"]
+    os.makedirs(base_out, exist_ok=True)
+    specs = build_multi_commands(global_args, module_inputs)
+    for spec in specs:
+        os.makedirs(spec["out_dir"], exist_ok=True)
+        spec["log_path"] = os.path.join(spec["out_dir"], "_opt_run.log")
+        spec["rc_path"]  = os.path.join(spec["out_dir"], "_opt_run.rc")
+        for p in [spec["log_path"], spec["rc_path"]]:
+            if os.path.exists(p):
+                os.remove(p)
+
+    first, *rest = specs
+    try:
+        _start_run(first)
+    except FileNotFoundError:
+        st.error(
+            "Could not find the `opt` executable. "
+            "Make sure you have run `pip install .` inside the `opt` conda environment."
+        )
+        return
+
+    ref_names = [s["name"] for s in specs]
+    st.session_state.update({
+        "opt_running":        True,
+        "opt_multi_mode":     True,
+        "opt_current_run":    first,
+        "opt_runs_queue":     rest,
+        "opt_completed_runs": [],
+        "opt_out_dir_base":   base_out,
+        "out_dir":            base_out,
+        "run_returncode":     None,
+        "run_stdout":         None,
+        "run_module":         "all",
+        "current_step":       0,
+        "biotype_filter":     "All",
+        "last_cmd":           f"Multi-annotation: {ref_names}",
+    })
+
+
+def _render_running_status() -> None:
+    """Dispatch to single or multi running status display."""
+    if st.session_state.get("opt_multi_mode"):
+        _render_multi_running_status()
+    else:
+        _render_single_running_status()
+
+
+def _render_single_running_status() -> None:
+    """Show live log while a single OPT run is in progress; auto-rerun until done."""
+    log_path = st.session_state.get("opt_log_path", "")
+    rc_path  = st.session_state.get("opt_rc_path", "")
+
+    log_content = ""
+    if log_path and os.path.exists(log_path):
+        with open(log_path) as f:
+            log_content = f.read()
+
+    current_step = st.session_state.get("current_step", 0)
+    if "FLIP module"  in log_content and current_step < 1:
+        current_step = 1
+    if "TRACK module" in log_content and current_step < 2:
+        current_step = 2
+    if "STAT module"  in log_content and current_step < 3:
+        current_step = 3
+    st.session_state["current_step"] = current_step
+
+    if rc_path and os.path.exists(rc_path):
+        with open(rc_path) as f:
+            rc = int(f.read().strip())
+        st.session_state["run_returncode"] = rc
+        st.session_state["run_stdout"]     = log_content
+        st.session_state["current_step"]   = 4 if rc == 0 else current_step
+        st.session_state["opt_running"]    = False
+        st.rerun()
+        return
+
+    with st.status("Running OPT...", expanded=True):
+        st.markdown(_step_html(current_step), unsafe_allow_html=True)
+        formatted = [_fmt_line(ln) for ln in log_content.splitlines()]
+        formatted = [f for f in formatted if f]
+        st.markdown("<br>".join(formatted), unsafe_allow_html=True)
+
+    time.sleep(1)
+    st.rerun()
+
+
+def _render_multi_running_status() -> None:
+    """Show multi-annotation progress; advance queue or merge when each run finishes."""
+    completed = st.session_state.get("opt_completed_runs", [])
+    current   = st.session_state.get("opt_current_run", {})
+    queue     = st.session_state.get("opt_runs_queue", [])
+    rc_path   = st.session_state.get("opt_rc_path", "")
+    log_path  = st.session_state.get("opt_log_path", "")
+
+    log_content = ""
+    if log_path and os.path.exists(log_path):
+        with open(log_path) as f:
+            log_content = f.read()
+
+    current_step = st.session_state.get("current_step", 0)
+    for tag, n in [("FLIP module", 1), ("TRACK module", 2), ("STAT module", 3)]:
+        if tag in log_content and current_step < n:
+            current_step = n
+    st.session_state["current_step"] = current_step
+
+    if rc_path and os.path.exists(rc_path):
+        with open(rc_path) as f:
+            rc = int(f.read().strip())
+
+        if rc != 0:
+            st.session_state.update({
+                "run_returncode": rc, "run_stdout": log_content,
+                "opt_running": False, "opt_multi_mode": False,
+            })
+            st.rerun()
+            return
+
+        completed.append({**current, "log": log_content})
+        st.session_state["opt_completed_runs"] = completed
+
+        if queue:
+            next_run = queue.pop(0)
+            st.session_state["opt_runs_queue"]  = queue
+            st.session_state["opt_current_run"] = next_run
+            st.session_state["current_step"]    = 0
+            _start_run(next_run)
+            st.rerun()
+            return
+        else:
+            base_out = st.session_state["opt_out_dir_base"]
+            _merge_multi_results(completed, base_out)
+            st.session_state.update({
+                "run_returncode": 0,
+                "run_stdout":     "Multi-annotation run complete.",
+                "current_step":   4,
+                "opt_running":    False,
+                "opt_multi_mode": False,
+                "biotype_filter": "All",
+            })
+            st.rerun()
+            return
+
+    # Still running — build progress header and display log
+    done_names = {r["name"] for r in completed}
+    parts = []
+    for name in ["GENCODE", "CHESS", "RefSeq"]:
+        color = _REF_COLORS[name]
+        if name in done_names:
+            parts.append(
+                f'<span style="color:#2ca02c">&#10003; '
+                f'<span style="background:{color};color:white;padding:1px 5px;'
+                f'border-radius:3px;font-size:0.85em">{name}</span></span>')
+        elif name == current.get("name"):
+            parts.append(
+                f'<span style="color:#1f77b4;font-weight:bold">&#9654; '
+                f'<span style="background:{color};color:white;padding:1px 5px;'
+                f'border-radius:3px;font-size:0.85em">{name}</span></span>')
+        else:
+            parts.append(
+                f'<span style="color:#aaa">&#9675; '
+                f'<span style="background:#aaa;color:white;padding:1px 5px;'
+                f'border-radius:3px;font-size:0.85em">{name}</span></span>')
+    progress_html = " &nbsp;&rarr;&nbsp; ".join(parts)
+
+    with st.status(f"Running OPT — {current.get('name', '')} annotation...", expanded=True):
+        st.markdown(progress_html, unsafe_allow_html=True)
+        st.markdown(_step_html(current_step), unsafe_allow_html=True)
+        formatted = [f for f in (_fmt_line(ln) for ln in log_content.splitlines()) if f]
+        st.markdown("<br>".join(formatted), unsafe_allow_html=True)
+
+    time.sleep(1)
+    st.rerun()
 
 
 # ── Results helpers ───────────────────────────────────────────────────────────
@@ -504,7 +924,8 @@ def _build_ot_rows(summary_df, probes_df) -> list:
     agg: dict = {}  # {target_gene: {ot_gene: {biotypes, cigars, probe_ids}}}
 
     if probes_df is not None:
-        has_pg_col = "probe_gene" in probes_df.columns
+        has_pg_col  = "probe_gene" in probes_df.columns
+        has_ref_col = "reference_annotation" in probes_df.columns
         for _, row in probes_df.iterrows():
             if has_pg_col:
                 probe_gene = str(row["probe_gene"])
@@ -512,6 +933,7 @@ def _build_ot_rows(summary_df, probes_df) -> list:
                 parts = str(row.get("probe_id", "")).split("|")
                 probe_gene = parts[1] if len(parts) >= 2 else str(row.get("probe_id", ""))
             probe_id   = str(row.get("probe_id", ""))
+            ref_name   = str(row.get("reference_annotation", "")).strip() if has_ref_col else ""
             gene_names = str(row.get("gene_names",       "")).strip("[]").split(",")
             ttypes     = str(row.get("transcript_types", "")).strip("[]").split(",")
             cigars_l   = str(row.get("cigars",           "")).strip("[]").split(",")
@@ -523,11 +945,15 @@ def _build_ot_rows(summary_df, probes_df) -> list:
                 if not gname or gname == probe_gene:
                     continue
                 ot_entry = agg.setdefault(probe_gene, {}).setdefault(
-                    gname, {"biotypes": set(), "cigars": set(), "probe_ids": set()}
+                    gname, {"biotypes": set(), "cigars": set(), "probe_ids": set(),
+                            "refs": set(), "ref_biotypes": {}}
                 )
                 ot_entry["biotypes"].add(ttype)
                 ot_entry["cigars"].add(cig)
                 ot_entry["probe_ids"].add(probe_id)
+                if ref_name:
+                    ot_entry["refs"].add(ref_name)
+                    ot_entry["ref_biotypes"].setdefault(ref_name, set()).add(ttype)
 
     rows: list = []
     if summary_df is None:
@@ -540,11 +966,13 @@ def _build_ot_rows(summary_df, probes_df) -> list:
         if ot_data:
             for ot_gene, data in sorted(ot_data.items()):
                 rows.append({
-                    "target_gene":      tg,
+                    "target_gene":       tg,
                     "off_target_probes": len(data["probe_ids"]),
-                    "off_target_gene":  ot_gene,
-                    "biotypes":         data["biotypes"],
-                    "cigars":           data["cigars"],
+                    "off_target_gene":   ot_gene,
+                    "biotypes":          data["biotypes"],
+                    "cigars":            data["cigars"],
+                    "refs":              data.get("refs", set()),
+                    "ref_biotypes":      data.get("ref_biotypes", {}),
                 })
         else:
             # Fallback: no probe-level data — derive off-target genes from summary row
@@ -553,11 +981,13 @@ def _build_ot_rows(summary_df, probes_df) -> list:
                 ot_gene = ot_gene.strip()
                 if ot_gene and ot_gene != tg:
                     rows.append({
-                        "target_gene":      tg,
+                        "target_gene":       tg,
                         "off_target_probes": int(srow.get("n", 0)),
-                        "off_target_gene":  ot_gene,
-                        "biotypes":         set(),
-                        "cigars":           set(),
+                        "off_target_gene":   ot_gene,
+                        "biotypes":          set(),
+                        "cigars":            set(),
+                        "refs":              set(),
+                        "ref_biotypes":      {},
                     })
     return rows
 
@@ -591,7 +1021,23 @@ def render_results() -> None:
         st.info("No off-target summary file found in the output directory.")
         return
 
-    st.subheader("Off-Target Results")
+    # For single-annotation runs with a known preset, tag probes with the source name
+    # so the Source and Gene biotype columns are populated correctly.
+    # Read from disk so this works after page refresh or app restart.
+    annotation_preset = st.session_state.get("run_annotation_preset", "")
+    if not annotation_preset:
+        preset_file = os.path.join(out_dir, "_opt_annotation_preset.txt")
+        if os.path.exists(preset_file):
+            with open(preset_file) as _f:
+                annotation_preset = _f.read().strip()
+            st.session_state["run_annotation_preset"] = annotation_preset
+    if (probes_df is not None
+            and "reference_annotation" not in probes_df.columns
+            and annotation_preset in _REF_COLORS):
+        probes_df = probes_df.copy()
+        probes_df["reference_annotation"] = annotation_preset
+
+    st.subheader("Predicted Off-Target Results")
 
     # Build the unified off-target row list (one entry per target→ot_gene pair)
     ot_rows = _build_ot_rows(summary_df, probes_df)
@@ -604,45 +1050,47 @@ def render_results() -> None:
     n_high      = len(high_genes)
 
     mc1, mc2, mc3 = st.columns(3)
-    mc1.metric("Genes with off-target binding",                   n_ot_genes)
-    mc2.metric("Probes with off-target binding",                  n_ot_probes)
-    mc3.metric("Protein-coding off-targets", n_high)
+    mc1.metric("Genes with predicted off-target binding",                   n_ot_genes)
+    mc2.metric("Genes with predicted protein-coding off-targets", n_high)
+    mc3.metric("Probes with predicted off-target binding",                  n_ot_probes)
 
     st.divider()
 
     # ── Gene-level table ──────────────────────────────────────────────────────
-    st.markdown("**Gene-level off-target summary**")
+    st.markdown("**Gene-level predicted off-target summary**")
 
-    all_biotypes: set = {bt for r in ot_rows for bt in r["biotypes"]}
-    all_biotypes.discard("")
-
-    filter_options = ["All"] + sorted(all_biotypes)
+    # Canonical groups for filter buttons (deduplicated, pseudogenes merged)
+    canonical_groups: set = {_normalize_biotype(bt)
+                             for r in ot_rows for bt in r["biotypes"] if bt}
+    filter_options = ["All"] + sorted(canonical_groups)
     if st.session_state.get("biotype_filter", "All") not in filter_options:
         st.session_state["biotype_filter"] = "All"
 
     btn_cols = st.columns(len(filter_options))
-    for i, bt in enumerate(filter_options):
+    for i, grp in enumerate(filter_options):
         with btn_cols[i]:
-            is_active = st.session_state.get("biotype_filter", "All") == bt
-            label = bt if bt == "All" else bt.replace("_", " ")
-            if st.button(label, key=f"filter_{bt}", use_container_width=True,
+            is_active = st.session_state.get("biotype_filter", "All") == grp
+            btn_key = "filter_" + grp.replace(" ", "_").replace("/", "_")
+            if st.button(grp, key=btn_key, use_container_width=True,
                          type="primary" if is_active else "secondary"):
-                st.session_state["biotype_filter"] = bt
+                st.session_state["biotype_filter"] = grp
+                st.rerun()
 
     active_filter = st.session_state.get("biotype_filter", "All")
 
     visible = [
         r for r in ot_rows
-        if active_filter == "All" or active_filter in r["biotypes"]
+        if active_filter == "All"
+        or any(_normalize_biotype(bt) == active_filter for bt in r["biotypes"])
     ]
 
     # ── Sort controls ─────────────────────────────────────────────────────────
-    _SORT_COLS = ["Target gene", "Off-target probes", "Off-target gene", "Gene biotype"]
+    _SORT_COLS = ["Target gene", "Predicted off-target probes", "Predicted off-target genes", "Gene biotype"]
     _SORT_KEYS = {
         "Target gene":       lambda r: r["target_gene"].lower(),
-        "Off-target probes": lambda r: r["off_target_probes"],
-        "Off-target gene":   lambda r: r["off_target_gene"].lower(),
-        "Gene biotype":      lambda r: min(r["biotypes"]) if r["biotypes"] else "",
+        "Predicted off-target probes": lambda r: r["off_target_probes"],
+        "Predicted off-target genes":   lambda r: r["off_target_gene"].lower(),
+        "Gene biotype":      lambda r: min((_normalize_biotype(bt) for bt in r["biotypes"]), default=""),
     }
     sort_col_widget, sort_dir_widget = st.columns([3, 1])
     with sort_col_widget:
@@ -659,7 +1107,7 @@ def render_results() -> None:
     visible = sorted(visible, key=_SORT_KEYS[sort_col], reverse=not asc)
 
     if not visible:
-        st.info(f"No off-target genes match the selected biotype filter: {active_filter.replace('_', ' ')}")
+        st.info(f"No predicted off-target genes match the selected biotype filter: {active_filter.replace('_', ' ')}")
     else:
         th = ('background:#d8d8d8;color:#111111;padding:6px 8px;'
               'font-weight:bold;border-bottom:2px solid #bbb')
@@ -669,18 +1117,55 @@ def render_results() -> None:
             '<table style="width:100%;border-collapse:collapse;font-size:0.9em;color:#111111">'
             f'<thead><tr>'
             f'<th style="text-align:left;{th}">Target gene</th>'
-            f'<th style="text-align:right;{th}">Off-target probes</th>'
-            f'<th style="text-align:left;{th}">Off-target gene</th>'
+            f'<th style="text-align:right;{th}">Predicted off-target probes</th>'
+            f'<th style="text-align:left;{th}">Predicted off-target genes</th>'
             f'<th style="text-align:left;{th}">Gene biotype</th>'
             f'<th style="text-align:left;{th}">CIGAR</th>'
+            f'<th style="text-align:left;{th}">Source</th>'
             f'</tr></thead><tbody>'
         )
         for i, r in enumerate(visible):
             bg = "#f5f5f5" if i % 2 == 0 else "#ffffff"
-            bt_html = (
-                " ".join(_biotype_badge(bt) for bt in sorted(r["biotypes"]))
-                if r["biotypes"] else ""
-            )
+            # Build Gene biotype and Source columns
+            ref_biotypes = r.get("ref_biotypes", {})
+            if ref_biotypes:
+                # Multi-annotation: pair each source with its biotype(s) in fixed order
+                bt_parts, src_parts = [], []
+                for ref in ["GENCODE", "CHESS", "RefSeq"]:
+                    if ref not in ref_biotypes:
+                        continue
+                    color = _REF_COLORS.get(ref, "#999")
+                    src_parts.append(
+                        f'<span style="background:{color};color:white;padding:1px 5px;'
+                        f'border-radius:3px;font-size:0.78em">{ref}</span>'
+                    )
+                    seen_n: set = set()
+                    cell_badges = []
+                    for bt in sorted(ref_biotypes[ref]):
+                        norm = _normalize_biotype(bt)
+                        if norm not in seen_n:
+                            seen_n.add(norm)
+                            cell_badges.append(_biotype_badge(bt))
+                    # Stack multiple biotypes within a ref vertically; single is inline
+                    bt_parts.append("<br>".join(cell_badges) if cell_badges else "—")
+                _sep = ' <span style="color:#bbb;margin:0 4px">|</span> '
+                bt_html  = _sep.join(bt_parts)
+                ref_html = _sep.join(src_parts)
+            else:
+                # Single annotation: existing flat badge display
+                seen_norms: set = set()
+                bt_badges = []
+                for bt in sorted(r["biotypes"]):
+                    norm = _normalize_biotype(bt)
+                    if norm not in seen_norms:
+                        seen_norms.add(norm)
+                        bt_badges.append(_biotype_badge(bt))
+                bt_html = " ".join(bt_badges) if bt_badges else ""
+                ref_html = " ".join(
+                    f'<span style="background:{_REF_COLORS.get(ref, "#999")};color:white;'
+                    f'padding:1px 5px;border-radius:3px;font-size:0.78em">{ref}</span>'
+                    for ref in sorted(r.get("refs", set())) if ref
+                )
             cigar_html = " ".join(
                 f'<code style="background:#f0f0f0;color:#333;padding:1px 4px;'
                 f'border-radius:3px;font-size:0.8em">{c}</code>'
@@ -693,6 +1178,7 @@ def render_results() -> None:
                 f'<td style="padding:5px 8px;color:#111111">{r["off_target_gene"]}</td>'
                 f'<td style="padding:5px 8px">{bt_html}</td>'
                 f'<td style="padding:5px 8px">{cigar_html}</td>'
+                f'<td style="padding:5px 8px">{ref_html}</td>'
                 f'</tr>'
             )
         html += '</tbody></table></div>'
@@ -711,52 +1197,79 @@ def render_results() -> None:
     st.divider()
 
     # ── Probe-level detail ────────────────────────────────────────────────────
-    with st.expander("Probe-level off-target detail", expanded=False):
+    with st.expander("Probe-level predicted off-target detail", expanded=False):
         probes_path = os.path.join(out_dir, "probe2targets_offtargets.tsv")
         if probes_df is not None:
+            # Derive off-target-only CIGAR strings by filtering the parallel
+            # gene_names/cigars lists to positions where gene != probe_gene
+            def _ot_cigars(row):
+                has_pg = "probe_gene" in probes_df.columns
+                probe_gene = str(row["probe_gene"]) if has_pg else (
+                    str(row.get("probe_id", "")).split("|")[1]
+                    if len(str(row.get("probe_id", "")).split("|")) >= 2
+                    else str(row.get("probe_id", ""))
+                )
+                genes  = str(row.get("gene_names", "")).strip("[]").split(",")
+                cigars = str(row.get("cigars",     "")).strip("[]").split(",")
+                ot = list(dict.fromkeys(  # preserve order, deduplicate
+                    c.strip() for g, c in zip(genes, cigars)
+                    if g.strip() and g.strip() != probe_gene and c.strip()
+                ))
+                return ", ".join(ot) if ot else ""
+
+            display_df = probes_df.copy()
+            display_df["offtarget_cigars"] = display_df.apply(_ot_cigars, axis=1)
+
+            # Strip brackets from list-valued columns for cleaner display
+            for col in ["offtarget_gene_names", "offtarget_gene_types",
+                        "gene_names", "transcript_types", "gene_ids", "transcript_ids"]:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].astype(str).str.strip("[]")
+
             show_cols = [c for c in
                          ["probe_id", "probe_gene", "offtarget_gene_names",
-                          "offtarget_gene_types", "cigars"]
-                         if c in probes_df.columns]
+                          "offtarget_gene_types", "offtarget_cigars", "reference_annotation"]
+                         if c in display_df.columns]
             if not show_cols:
-                show_cols = list(probes_df.columns)
-            total = len(probes_df)
+                show_cols = list(display_df.columns)
+            total = len(display_df)
             max_rows = st.slider(
                 "Rows to show", min_value=10, max_value=max(total, 10),
                 value=min(50, total), step=10, key="probe_detail_slider",
             )
-            st.dataframe(probes_df[show_cols].head(max_rows), use_container_width=True)
+            st.dataframe(display_df[show_cols].head(max_rows), use_container_width=True)
             st.caption(f"Showing {min(max_rows, total)} of {total} probes.")
         else:
             st.info("probe2targets_offtargets.tsv not found in output directory.")
         if os.path.exists(probes_path):
             with open(probes_path, "rb") as fh:
                 st.download_button(
-                    "Download probe-level off-targets (probe2targets_offtargets.tsv)",
+                    "Download probe-level predicted off-targets (probe2targets_offtargets.tsv)",
                     data=fh, file_name="probe2targets_offtargets.tsv",
                     key="dl_probes_ot",
                 )
 
     st.divider()
 
-    # ── Download all key output files ─────────────────────────────────────────
-    st.markdown("**Download output files**")
-    dl_files = {
-        "collapsed_summary.tsv":     "All-gene summary",
-        "probe2targets.tsv":         "All-probe alignments",
-        "stat_missed_probes.txt":    "Missed-target probes",
-        "stat_off_target_genes.txt": "Off-target gene list",
-        "stat_missed_genes.txt":     "Missed-target gene list",
-    }
-    dl_cols = st.columns(len(dl_files))
-    for col, (fname, label) in zip(dl_cols, dl_files.items()):
-        fpath = os.path.join(out_dir, fname)
-        with col:
-            if os.path.exists(fpath):
-                with open(fpath, "rb") as fh:
-                    st.download_button(label, data=fh, file_name=fname, key=f"dl_{fname}")
-            else:
-                st.caption(f"*{fname}* not found")
+    # ── Output file descriptions ───────────────────────────────────────────────
+    st.markdown("**Output files**")
+    st.caption(f"All output files are saved to: `{out_dir}`")
+    st.markdown(
+        """
+| File | Description |
+|---|---|
+| `collapsed_summary_offtargets.tsv` | One row per target gene with off-target binding — lists the off-target genes, probe counts, and biotypes. |
+| `probe2targets_offtargets.tsv` | One row per probe that maps to more than one gene — includes all alignment targets, CIGAR strings, and biotypes. |
+| `collapsed_summary.tsv` | Summary across all target genes (including those with no off-target binding). |
+| `probe2targets.tsv` | Full alignment table for all probes, including on-target hits. |
+| `stat_off_target_probes.txt` | List of probe IDs with at least one off-target alignment. |
+| `stat_off_target_genes.txt` | List of off-target gene names detected across all probes. |
+| `stat_missed_probes.txt` | Probes that did not align to their intended target gene. |
+| `stat_missed_genes.txt` | Target genes for which no probes aligned. |
+| `fwd_oriented.fa` | Strand-corrected probe sequences produced by the flip step. |
+        """,
+        unsafe_allow_html=False,
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -773,7 +1286,10 @@ def main():
         if st.button("Run OPT", type="primary", use_container_width=True):
             run_opt(global_args, module_inputs)
     with load_col:
-        if st.button("Load previous results", use_container_width=True):
+        if st.button("Load previous results", use_container_width=True,
+                     help="Load results from a previous run without re-running OPT. "
+                          "Set the Output Directory above to the folder from your previous run, "
+                          "then click this button."):
             out_dir = st.session_state.get("all_out_dir_val", "./opt_results").strip()
             summary = os.path.join(out_dir, "collapsed_summary_offtargets.tsv")
             if os.path.isdir(out_dir) and os.path.exists(summary):
@@ -786,7 +1302,10 @@ def main():
             else:
                 st.warning("No results found in the output directory.")
 
-    render_results()
+    if st.session_state.get("opt_running"):
+        _render_running_status()
+    else:
+        render_results()
 
 
 if __name__ == "__main__":
