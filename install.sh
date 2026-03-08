@@ -9,9 +9,13 @@ echo ""
 # Detect platform
 OS="$(uname -s)"
 
-# Step 1: Create conda environment
+# Step 1: Create conda environment (remove existing if present)
 echo "[1/4] Creating conda environment 'opt' from environment.yml..."
-conda env create -f "${REPO_DIR}/environment.yml" --force
+if conda env list | grep -q "^opt "; then
+    echo "      Removing existing 'opt' environment..."
+    conda env remove -n opt -y
+fi
+conda env create -f "${REPO_DIR}/environment.yml"
 echo "      Done."
 
 # Step 2: Activate environment
