@@ -266,6 +266,14 @@ The `data/` directory includes pre-formatted reference files for human (GRCh38):
 
 An example gene synonyms file is at `data/gene_synonyms.csv`.
 
+The `install.sh` script automatically decompresses all `.gz` files in the `data/` directory. To decompress manually:
+
+```bash
+find data/ -name "*.gz" -exec gunzip -k {} \;
+```
+
+> **Note:** The web app requires uncompressed files (`.fa`, `.gff`). The CLI accepts gzip-compressed files directly.
+
 ---
 
 ## Supported Platforms

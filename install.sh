@@ -45,6 +45,19 @@ echo "[4/4] Installing the opt Python package..."
 pip install "${REPO_DIR}"
 echo "      Done."
 
+# Step 5: Decompress bundled reference data files
+echo "[5/5] Decompressing bundled reference data (.gz files)..."
+find "${REPO_DIR}/data" -name "*.gz" | while read -r gz_file; do
+    out_file="${gz_file%.gz}"
+    if [ ! -f "$out_file" ]; then
+        echo "      Decompressing $(basename "$gz_file")..."
+        gunzip -k "$gz_file"
+    else
+        echo "      Already decompressed: $(basename "$out_file")"
+    fi
+done
+echo "      Done."
+
 echo ""
 echo "=== Setup complete ==="
 echo ""
