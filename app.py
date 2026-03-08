@@ -88,6 +88,8 @@ def _normalize_biotype(biotype: str) -> str:
         return "pseudogene"
     if biotype in ("lncRNA", "ncRNA"):
         return "lncRNA / ncRNA"
+    if "miRNA" in biotype or "precursor" in biotype.lower():
+        return "miRNA"
     return biotype.replace("_", " ")
 
 
@@ -98,7 +100,7 @@ def _biotype_color(biotype: str) -> str:
         return "#888888"
     if biotype in ("lncRNA", "ncRNA"):
         return "#e07b00"
-    if biotype in ("miscRNA", "miRNA", "snoRNA", "snRNA"):
+    if "miRNA" in biotype or "precursor" in biotype.lower() or biotype in ("miscRNA", "snoRNA", "snRNA"):
         return "#9467bd"
     return "#1f77b4"
 
@@ -110,6 +112,8 @@ def _biotype_badge(biotype: str) -> str:
         label = "protein coding"
     elif biotype in ("lncRNA", "ncRNA"):
         label = "lncRNA / ncRNA"
+    elif "miRNA" in biotype or "precursor" in biotype.lower():
+        label = "miRNA"
     else:
         label = biotype.replace("_", " ")
     return (
@@ -956,7 +960,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                     continue
                 ot_entry = agg.setdefault(probe_gene, {}).setdefault(
                     gname, {"biotypes": set(), "cigars": set(), "probe_ids": set(),
-                            "refs": set(), "ref_biotypes": {}}
+                            "refs": set(), "ref_biotypes": {}, "ref_cigars": {}}
                 )
                 ot_entry["biotypes"].add(ttype)
                 ot_entry["cigars"].add(cig)
@@ -964,6 +968,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                 if ref_name:
                     ot_entry["refs"].add(ref_name)
                     ot_entry["ref_biotypes"].setdefault(ref_name, set()).add(ttype)
+                    ot_entry["ref_cigars"].setdefault(ref_name, set()).add(cig)
 
     # Also scan probe2targets.tsv (all probes) for exclusive off-target hits:
     # probes that align ONLY to a non-target gene (n_genes=1, gene != probe_gene).
@@ -984,7 +989,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                     continue
                 ot_entry = agg.setdefault(probe_gene, {}).setdefault(
                     gname, {"biotypes": set(), "cigars": set(), "probe_ids": set(),
-                            "refs": set(), "ref_biotypes": {}}
+                            "refs": set(), "ref_biotypes": {}, "ref_cigars": {}}
                 )
                 ot_entry["biotypes"].add(ttype)
                 ot_entry["cigars"].add(cig)
@@ -992,6 +997,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                 if ref_name:
                     ot_entry["refs"].add(ref_name)
                     ot_entry["ref_biotypes"].setdefault(ref_name, set()).add(ttype)
+                    ot_entry["ref_cigars"].setdefault(ref_name, set()).add(cig)
 
     rows: list = []
     if summary_df is None:
@@ -1011,6 +1017,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                     "cigars":            data["cigars"],
                     "refs":              data.get("refs", set()),
                     "ref_biotypes":      data.get("ref_biotypes", {}),
+                    "ref_cigars":        data.get("ref_cigars", {}),
                 })
         else:
             # Fallback: no probe-level data — derive off-target genes from summary row
@@ -1026,6 +1033,7 @@ def _build_ot_rows(summary_df, probes_df, all_probes_df=None) -> list:
                         "cigars":            set(),
                         "refs":              set(),
                         "ref_biotypes":      {},
+                        "ref_cigars":        {},
                     })
     return rows
 
@@ -1168,9 +1176,11 @@ def render_results() -> None:
             bg = "#f5f5f5" if i % 2 == 0 else "#ffffff"
             # Build Gene biotype and Source columns
             ref_biotypes = r.get("ref_biotypes", {})
+            ref_cigars   = r.get("ref_cigars",   {})
             if ref_biotypes:
-                # Multi-annotation: pair each source with its biotype(s) in fixed order
-                bt_parts, src_parts = [], []
+                # Multi-annotation: pair each source with its biotype(s) and CIGAR(s)
+                # in fixed order so all three columns are aligned row-by-row
+                bt_parts, src_parts, cig_parts = [], [], []
                 for ref in ["GENCODE", "CHESS", "RefSeq"]:
                     if ref not in ref_biotypes:
                         continue
@@ -1186,13 +1196,21 @@ def render_results() -> None:
                         if norm not in seen_n:
                             seen_n.add(norm)
                             cell_badges.append(_biotype_badge(bt))
-                    # Stack multiple biotypes within a ref vertically; single is inline
                     bt_parts.append("<br>".join(cell_badges) if cell_badges else "—")
+                    cig_list = sorted(set(ref_cigars.get(ref, set())))
+                    cig_codes = cig_list[0] if cig_list else "—"
+                    cig_codes = (
+                        f'<code style="background:#f0f0f0;color:#333;padding:1px 4px;'
+                        f'border-radius:3px;font-size:0.8em">{cig_codes}</code>'
+                        if cig_list else "—"
+                    )
+                    cig_parts.append(cig_codes if cig_codes else "—")
                 _sep = ' <span style="color:#bbb;margin:0 4px">|</span> '
-                bt_html  = _sep.join(bt_parts)
-                ref_html = _sep.join(src_parts)
+                bt_html    = _sep.join(bt_parts)
+                ref_html   = _sep.join(src_parts)
+                cigar_html = _sep.join(cig_parts)
             else:
-                # Single annotation: existing flat badge display
+                # Single annotation: flat display
                 seen_norms: set = set()
                 bt_badges = []
                 for bt in sorted(r["biotypes"]):
@@ -1206,11 +1224,11 @@ def render_results() -> None:
                     f'padding:1px 5px;border-radius:3px;font-size:0.78em">{ref}</span>'
                     for ref in sorted(r.get("refs", set())) if ref
                 )
-            cigar_html = " ".join(
-                f'<code style="background:#f0f0f0;color:#333;padding:1px 4px;'
-                f'border-radius:3px;font-size:0.8em">{c}</code>'
-                for c in sorted(r["cigars"])
-            )
+                cigar_html = " ".join(
+                    f'<code style="background:#f0f0f0;color:#333;padding:1px 4px;'
+                    f'border-radius:3px;font-size:0.8em">{c}</code>'
+                    for c in sorted(r["cigars"])
+                )
             html += (
                 f'<tr style="background:{bg};border-bottom:1px solid #e8e8e8;color:#111111">'
                 f'<td style="padding:5px 8px;font-weight:bold;color:#111111">{r["target_gene"]}</td>'
