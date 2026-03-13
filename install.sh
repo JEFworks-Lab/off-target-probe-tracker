@@ -51,7 +51,14 @@ find "${REPO_DIR}/data" -name "*.gz" | while read -r gz_file; do
     out_file="${gz_file%.gz}"
     if [ ! -f "$out_file" ]; then
         echo "      Decompressing $(basename "$gz_file")..."
-        gunzip -k "$gz_file"
+        file_type="$(file -b "$gz_file")"
+        if echo "$file_type" | grep -qi "gzip"; then
+            gunzip -k "$gz_file"
+        elif echo "$file_type" | grep -qi "zip"; then
+            unzip -p "$gz_file" > "$out_file"
+        else
+            echo "      WARNING: Unknown format for $(basename "$gz_file"), skipping."
+        fi
     else
         echo "      Already decompressed: $(basename "$out_file")"
     fi
