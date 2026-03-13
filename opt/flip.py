@@ -54,7 +54,9 @@ def load_bam(fn, qinfos, tinfos, is_bam) -> dict:
 
 def flip(ainfos, pfa, out_dir):
     missing_origin = []
-    to_rc = []
+    # Use a set for to_rc so membership checks during FASTA writing are O(1)
+    # instead of O(n) — critical when there are thousands of probes
+    to_rc = set()
     for qname in ainfos:
         if len(ainfos[qname]) == 0:
             missing_origin.append(qname)
@@ -62,7 +64,7 @@ def flip(ainfos, pfa, out_dir):
             continue
         else:
             assert all(not x for x in ainfos[qname])
-            to_rc.append(qname)
+            to_rc.add(qname)
     print(message(f"{len(missing_origin)} / {len(pfa)} probes not mapped to their origin. See flip.missing_ori.txt", Mtype.RESULT))
     print(message(f"{len(to_rc)} / {len(pfa)} probes to flip (i.e., reverse complement). See rev_cmped_probes.txt", Mtype.RESULT))
     fn = os.path.join(out_dir, 'fwd_oriented.fa')
@@ -74,7 +76,7 @@ def flip(ainfos, pfa, out_dir):
             else:
                 out_s = q.seq
             fh.write(f'>{q.name}\n{out_s}\n')
-    return missing_origin, to_rc
+    return missing_origin, list(to_rc)
 
 def main(args) -> None:
     print(message(f"FLIP module is aligning input probes to source transcripts", Mtype.START))

@@ -51,6 +51,8 @@ def parse():
                     help="", default=0)
     parser_track.add_argument('-1', '--one-mismatch', action='store_true', \
                     default=False, required=False, help="")
+    parser_track.add_argument('-mm', '--max-mismatches', type=int, default=-1, required=False,
+                    help="Max mismatches allowed anywhere in the full probe (-1 = disabled)")
     
     # stat module
     parser_stat = subparsers.add_parser('stat', help="")
@@ -77,6 +79,8 @@ def parse():
                             help="", default=0)
     parser_all.add_argument('-1', '--one-mismatch', action='store_true', \
                             default=False, required=False, help="")
+    parser_all.add_argument('-mm', '--max-mismatches', type=int, default=-1, required=False,
+                    help="Max mismatches allowed anywhere in the full probe (-1 = disabled)")
     parser_all.add_argument('--exclude-pseudo', required=False, default=False, help="", \
                     action='store_true')
     parser_all.add_argument('--pc-only', required=False, default=False, help="", \
@@ -169,6 +173,9 @@ def main() -> None:
         if args.one_mismatch and args.pad_length > 0:
             print(message(f"cannot use -1 mode with positive pad_length", Mtype.ERROR))
             sys.exit(-1)
+        if args.one_mismatch and args.max_mismatches >= 0:
+            print(message(f"cannot use --one-mismatch with --max-mismatches", Mtype.ERROR))
+            sys.exit(-1)
         print(message(f"### TRACK ###", Mtype.START))
         param_fn = os.path.join(args.out_dir, "track_params.json")
         store_params(args, param_fn)
@@ -195,6 +202,9 @@ def main() -> None:
             sys.exit(-1)
         if args.one_mismatch and args.pad_length > 0:
             print(message(f"cannot use -1 mode with positive pad_length", Mtype.ERROR))
+            sys.exit(-1)
+        if args.one_mismatch and args.max_mismatches >= 0:
+            print(message(f"cannot use --one-mismatch with --max-mismatches", Mtype.ERROR))
             sys.exit(-1)
         if args.pc_only and args.exclude_pseudo:
             print(message(f"cannot use both --pc-only and --exclude-pseudo flags", Mtype.ERROR))
