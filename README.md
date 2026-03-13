@@ -3,7 +3,7 @@
 OPT identifies potential off-target binding of probe sequences against a reference transcriptome using nucleotide alignment (nucmer). The goal of OPT is to help evaluate probe specificity before experiments by detecting probes that may hybridize to unintended transcripts.
 
 
-**Citation:** Hallinan et al., *eLife* 2025. https://elifesciences.org/reviewed-preprints/107070
+Hallinan et al., *eLife* 2025. https://elifesciences.org/reviewed-preprints/107070
 
 
 ## Quick Start
@@ -26,6 +26,7 @@ This script will:
 1. Create a conda environment named `opt` from `environment.yml`
 2. Install mummer4 (via conda on Linux, via Homebrew on macOS)
 3. Install the `opt` Python package
+4. Decompress examples probes and all reference annotations
 
 ### Manual Installation
 
@@ -92,7 +93,7 @@ Then open `http://localhost:8501` in your browser.
 4. Click **Run OPT** to run all three modules (flip → track → stat) and view results in the dashboard below.
 
 The results dashboard shows:
-- **Metric cards**: genes with off-target binding, genes with protein-coding off-targets, probes with off-target binding
+- **Brief Summary** - total genes with off-target binding, total genes with protein-coding off-targets, total probes with off-target binding
 - **Gene-level off-target table** — one row per target gene → off-target gene pair, with biotype badges, CIGAR strings, and source annotation. Filterable by biotype and sortable by any column.
 - **Probe-level detail table** (expandable) — one row per probe, showing off-target genes, biotypes, and CIGAR strings (consistent counts, `|`-delimited).
 - **Download buttons** for all key output files.
@@ -172,7 +173,7 @@ opt -o out_dir stat -i probe2targets.tsv -q probes.fa
 Headers must follow this format:
 
 ```
->gene_id|gene_name|accession
+>gene_id|gene_name|unique_id
 ```
 
 Example:
@@ -271,8 +272,6 @@ The `install.sh` script automatically decompresses all `.gz` files in the `data/
 ```bash
 find data/ -name "*.gz" -exec gunzip -k {} \;
 ```
-
-> **Note:** The web app requires uncompressed files (`.fa`, `.gff`). The CLI accepts gzip-compressed files directly.
 
 ---
 
